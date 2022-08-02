@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Type, TypeVar
 
-from sqlalchemy import Column, ForeignKey, select, delete, or_, and_
+from sqlalchemy import Column, ForeignKey, select, delete, or_, and_, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import count
 from sqlalchemy.sql.sqltypes import Integer, String, Text, Float
@@ -277,3 +277,16 @@ class Place(DeleteAllAble):
         )
 
         return session.get_all(stmt.limit(total))
+
+
+Index("idx_nq_region_name", Region.name)
+Index("idx_nq_municipality_name", Municipality.name)
+Index("idx_nq_settlement_name", Settlement.name)
+Index("idx_nq_settlement_population", Settlement.population.desc())
+
+Index("idx_nq_place_name", Place.name)
+Index("idx_nq_place_reg_id", Place.reg_id)
+Index("idx_nq_place_mun_id", Place.mun_id)
+Index("idx_nq_place_set_id", Place.set_id)
+Index("idx_nq_place_population", Place.population.desc())
+Index("idx_nq_place_name_population", Place.name, Place.population.desc())
