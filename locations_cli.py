@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import wraps
 from io import BytesIO
+from json import load
 from time import time
 from typing import IO
 
@@ -16,6 +17,7 @@ manage_locations = permission_index.add_permission("manage locations")
 locations_cli_blueprint = Blueprint("locations", __name__)
 
 CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
+STRATEGIES = (0, 1, 2, 3, 4, 5)
 
 
 def permission_cli_command():
@@ -93,6 +95,34 @@ def delete_locations(session):
     Region.delete_all(session)
 
 
+def time_one(session, search: str, strategy: int) -> tuple[float, set[int]]:
+    count = 4
+    speed = 0
+    results = set(place.id for place in Place.get_all(session, search, strategy=strategy))
+    for _ in range(count):
+        timer = time()
+        Place.get_all(session, search, strategy=strategy)
+        speed += (time() - timer) / count
+    return speed, results
+
+
+def test_search(session, test_searches: dict[str, list[str]]):
+    for group_name, group in test_searches.items():
+        check_sum: dict[str, set[int]] = {}
+        print(f"\nSummary for {group_name}:")
+        for strategy in STRATEGIES:
+            speeds: list[float] = []
+            for test_search in group:
+                speed, results = time_one(session, test_search, strategy)
+                speeds.append(speed)
+
+                if test_search not in check_sum:
+                    check_sum[test_search] = results
+                if len(diff := results.symmetric_difference(check_sum[test_search])):
+                    print(f"[strategy {strategy}] Some ids don't match for {test_search}: ", diff)
+            print(f"[strategy {strategy}]", *speeds)
+
+
 @permission_cli_command()
 @argument("csv", type=File("rb"))
 def upload(session, csv: IO[bytes]):
@@ -105,3 +135,9 @@ def upload(session, csv: IO[bytes]):
 @permission_cli_command()
 def delete(session):
     delete_locations(session)
+
+
+@permission_cli_command()
+@argument("data", type=File(encoding="utf-8"))
+def test(session, data):
+    test_search(session, load(data))
