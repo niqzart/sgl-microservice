@@ -161,7 +161,23 @@ class Place(DeleteAllAble):
                 results.sort(key=full_rank, reverse=True)
                 return results
 
-        if strategy // 2 == 0:
+        if strategy // 4 == 0:
+            if strategy == 1:
+                def try_search(search: str, real_search: str = None):
+                    if real_search is None:
+                        real_search = search
+                    results = session.get_all(select(cls).filter(cls.name.ilike(search + "%"))
+                                              .order_by(cls.population).limit(total + 1))
+                    if len(results) != total + 1:
+                        results = [r for r in results if real_search.lower() in r.name.lower()]
+                        results.sort(key=full_rank, reverse=True)
+                        return results
+
+                if len(search) > 4:
+                    results = try_search(search[:4], search)
+                    if results is not None:
+                        return results
+
             results: list[Place] = []
             result_ids = set()
             stmt = select(Settlement.id).order_by(Settlement.population.desc())
@@ -208,7 +224,7 @@ class Place(DeleteAllAble):
 
             return results
 
-        elif strategy // 2 == 1:
+        elif strategy // 4 == 1:
             stmt = select(cls).order_by(cls.population.desc())
             results = session.get_all(
                 stmt.limit(total)

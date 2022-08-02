@@ -13,7 +13,7 @@ manage_cities = permission_index.add_permission("manage locations")
 controller = MUBNamespace("locations", path="/locations/", sessionmaker=sessionmaker)
 
 CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
-STRATEGIES = (0, 1, 3, 4)
+STRATEGIES = (0, 1, 3, 4, 5, 6)
 
 
 def cache(dct, key, value_generator):
