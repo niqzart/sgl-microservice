@@ -95,7 +95,7 @@ class Settlement(LocalBase):
 
 ALLOWED_SYMBOLS: set[str] = set(" \"()+-./0123456789<>ENU_clnux«»ЁАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЫЭЮЯ"
                                 "абвгдежзийклмнопрстуфхцчшщъыьэюяё—№")
-STRATEGY: int = 4
+STRATEGY: int = 0
 
 
 def ilike_with_none(column: Column, search: str):
@@ -133,10 +133,12 @@ class Place(DeleteAllAble):
                               type_id=type_id, set_id=set_id, population=population)
 
     @classmethod
-    def get_all(cls, session, search: str, total: int = None, strategy: int = STRATEGY) -> list[Place]:
+    def get_all(cls, session, search: str, total: int = None, strategy: int = None) -> list[Place]:
         if len(search) > 60 or any(sym not in ALLOWED_SYMBOLS for sym in search):
             return []
 
+        if strategy is None:
+            strategy = STRATEGY
         if total is None:
             total = 100 // (len(search) * 2) if len(search) < 6 else 5
         search_pattern = search + "%"
@@ -164,21 +166,13 @@ class Place(DeleteAllAble):
                 return results
 
         if strategy // 4 == 0:
-            if strategy == 1:
-                def try_search(search: str, real_search: str = None):
-                    if real_search is None:
-                        real_search = search
-                    results = session.get_all(select(cls).filter(cls.name.ilike(search + "%"))
-                                              .order_by(cls.population).limit(total + 1))
-                    if len(results) != total + 1:
-                        results = [r for r in results if real_search.lower() in r.name.lower()]
-                        results.sort(key=full_rank, reverse=True)
-                        return results
-
-                if len(search) > 4:
-                    results = try_search(search[:4], search)
-                    if results is not None:
-                        return results
+            if strategy == 1 and len(search) > 4:
+                results = session.get_all(select(cls).filter(cls.name.ilike(search[:4] + "%"))
+                                          .order_by(cls.population).limit(total + 1))
+                if len(results) != total + 1:
+                    results = [r for r in results if search.lower() in r.name.lower()]
+                    results.sort(key=full_rank, reverse=True)
+                    return results
 
             results: list[Place] = []
             result_ids = set()
@@ -192,11 +186,13 @@ class Place(DeleteAllAble):
                 return len(results) >= total
 
             def place_all_set(subquery):
-                subquery = subquery.filter(Settlement.name.ilike(search_pattern)).limit(total - len(results))
-                return place_all(session.get_all(select(cls).filter(cls.set_id.in_(subquery))))
+                subquery = subquery.filter(Settlement.name.ilike(search_pattern)).limit(total - len(result_ids))
+                stmt = p_stmt.filter(cls.id.not_in(result_ids)).filter(cls.set_id.in_(subquery))
+                return place_all(session.get_all(stmt))
 
             def place_all_other(query):
-                return place_all(session.get_all(query.limit(total - len(results))))
+                query = query.filter(cls.id.not_in(result_ids)).limit(total - len(result_ids))
+                return place_all(session.get_all(query))
 
             regions = session.get_all(select(Region.id).filter(Region.name.ilike(search_pattern)))
             municipalities = session.get_all(select(Municipality.id).filter(Municipality.name.ilike(search_pattern)))
@@ -207,13 +203,9 @@ class Place(DeleteAllAble):
                 if len(mun_regs) and place_all_set(stmt.filter(Settlement.mun_id.in_(mun_regs))):
                     return results
 
-                reg_muns = session.get_all(select(Municipality.id).filter(Municipality.reg_id.in_(regions)))
-                if len(reg_muns) and place_all_set(stmt.filter(Settlement.mun_id.in_(reg_muns))):
+                if place_all_other(p_stmt.filter(cls.reg_id.in_(regions), cls.set_id.is_not(None),
+                                                 cls.name.ilike(search_pattern))):
                     return results
-
-            mun_no_regs = session.get_all(mun_stmt.filter(Municipality.reg_id.notin_(regions)))
-            if len(mun_no_regs) and place_all_set(stmt.filter(Settlement.mun_id.in_(mun_no_regs))):
-                return results
 
             if len(regions) and place_all_other(p_stmt.filter(cls.mun_id.is_(None), cls.reg_id.in_(regions))):
                 return results
@@ -228,31 +220,41 @@ class Place(DeleteAllAble):
 
         elif strategy // 4 == 1:
             stmt = select(cls).order_by(cls.population.desc())
+            result_ids = set()
             results = session.get_all(
                 stmt.limit(total)
+                .filter(cls.set_id.is_not(None), cls.name.ilike(search_pattern))
                 .join(Region, and_(cls.reg_id == Region.id, Region.name.ilike(search_pattern)))
                 .join(Municipality, and_(cls.mun_id == Municipality.id, Municipality.name.ilike(search_pattern)))
-                .join(Settlement, and_(cls.set_id == Settlement.id, Settlement.name.ilike(search_pattern)))
             )
+            result_ids.update(set(r.id for r in results))
 
             results += session.get_all(
                 stmt.limit(total - len(results))
-                .join(Region, cls.reg_id == Region.id)
-                .join(Municipality, cls.mun_id == Municipality.id)
-                .join(Settlement, and_(cls.set_id == Settlement.id, Settlement.name.ilike(search_pattern)))
-                .filter(or_(Region.name.ilike(search_pattern), Municipality.name.ilike(search_pattern)))
+                .filter(cls.id.notin_(result_ids), cls.set_id.is_not(None), cls.name.ilike(search_pattern))
+                .join(Region, and_(cls.reg_id == Region.id, Region.name.ilike(search_pattern)))
             )
+            result_ids.update(set(r.id for r in results))
 
-            for part, column in cls.JOINS:
-                results += session.get_all(stmt.filter(
-                    *[col.is_(None) for _, col in cls.JOINS if col != column],
-                    column.in_(
-                        select(part.id)
-                        .filter(part.name.ilike(search_pattern))
-                        .order_by(cls.population.desc())
-                        .limit(total - len(results))
-                    )
-                ))
+            results += session.get_all(
+                stmt.limit(total - len(results))
+                .filter(cls.id.notin_(result_ids), cls.mun_id.is_(None))
+                .join(Region, and_(cls.reg_id == Region.id, Region.name.ilike(search_pattern)))
+            )
+            result_ids.update(set(r.id for r in results))
+
+            results += session.get_all(
+                stmt.limit(total - len(results))
+                .filter(cls.id.notin_(result_ids), cls.set_id.is_(None), cls.mun_id.is_not(None))
+                .join(Municipality, and_(cls.mun_id == Municipality.id, Municipality.name.ilike(search_pattern)))
+            )
+            result_ids.update(set(r.id for r in results))
+
+            results += session.get_all(
+                stmt.limit(total - len(results))
+                .filter(cls.id.notin_(result_ids), cls.set_id.is_not(None), cls.name.ilike(search_pattern))
+            )
+            result_ids.update(set(r.id for r in results))
 
             return results
 
