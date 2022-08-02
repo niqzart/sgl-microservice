@@ -12,7 +12,21 @@ from common import PydanticModel, Base
 t = TypeVar("t", bound="LocalBase")
 
 
-class LocalBase(Base):
+class DeleteAllAble(Base):
+    __abstract__ = True
+
+    @classmethod
+    def delete_all(cls, session):
+        print(cls.count(session))
+        session.execute(delete(cls))
+        session.flush()
+
+    @classmethod
+    def count(cls, session) -> int:
+        return select(session.get_first(count(cls.id)))
+
+
+class LocalBase(DeleteAllAble):
     __abstract__ = True
 
     id = Column(Integer, primary_key=True)
@@ -27,17 +41,6 @@ class LocalBase(Base):
         if entry is None:
             entry = cls.create(session, name=name, **kwargs)
         return entry
-
-    @classmethod
-    def count(cls, session) -> int:
-        return select(session.get_first(count(cls.id)))
-
-    @classmethod
-    def delete_all(cls, session):
-        count: int = cls.count(session)
-        session.execute(delete(cls))
-        session.flush()
-        return count
 
 
 class Region(LocalBase):
@@ -71,3 +74,29 @@ class Settlement(LocalBase):
     oktmo = Column(String(11), nullable=False)
 
     FullModel = LocalBase.BaseModel.column_model(population, latitude, longitude, oktmo)
+
+
+class Place(DeleteAllAble):
+    __tablename__ = "nq_place"
+
+    id = Column(Integer, primary_key=True)
+    reg_id = Column(Integer, ForeignKey("nq_regions.id"), nullable=False)
+    reg = relationship("Region", foreign_keys=[reg_id])
+    mun_id = Column(Integer, ForeignKey("nq_municipalities.id"), nullable=True)
+    mun = relationship("Municipality", foreign_keys=[mun_id])
+    type_id = Column(Integer, ForeignKey("nq_settlement_types.id"), nullable=True)
+    type = relationship("SettlementType", foreign_keys=[type_id])
+    set_id = Column(Integer, ForeignKey("nq_settlements.id"), nullable=True)
+    set = relationship("Settlement", foreign_keys=[set_id])
+
+    TempModel = PydanticModel \
+        .nest_model(LocalBase.BaseModel, "region", "reg") \
+        .nest_model(LocalBase.BaseModel, "municipality", "mun") \
+        .nest_model(Settlement.FullModel, "settlement", "set") \
+        .nest_model(LocalBase.BaseModel, "type")
+
+    @classmethod
+    def create(cls, session, name: str, reg_id: int, mun_id: int = None,
+               type_id: int = None, set_id: int = None, population: int = 0) -> Place:
+        return super().create(session, name=name, reg_id=reg_id, mun_id=mun_id,
+                              type_id=type_id, set_id=set_id, population=population)
