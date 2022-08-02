@@ -37,7 +37,7 @@ class LocalBase(DeleteAllAble):
 
     @classmethod
     def find_or_create(cls: Type[t], session, name: str, **kwargs) -> t:
-        entry = cls.find_by_name(session, name, **kwargs)
+        entry = session.get_first(select(cls).filter_by(name=name))
         if entry is None:
             entry = cls.create(session, name=name, **kwargs)
         return entry
