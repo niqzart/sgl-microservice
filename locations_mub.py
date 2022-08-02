@@ -8,7 +8,7 @@ from werkzeug.datastructures import FileStorage
 from common import sessionmaker
 from moderation import MUBNamespace, permission_index
 from .locations_db import Region, Municipality, SettlementType, Settlement, Place
-from .locations_cli import manage_locations, upload_locations
+from .locations_cli import manage_locations, upload_locations, delete_locations
 
 controller = MUBNamespace("locations", path="/locations/", sessionmaker=sessionmaker)
 
@@ -51,8 +51,4 @@ class CitiesControlResource(Resource):
 
     @permission_index.require_permission(controller, manage_locations, use_moderator=False)
     def delete(self, session):
-        Place.delete_all(session)
-        Settlement.delete_all(session)
-        SettlementType.delete_all(session)
-        Municipality.delete_all(session)
-        Region.delete_all(session)
+        delete_locations(session)

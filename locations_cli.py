@@ -85,6 +85,14 @@ def upload_locations(session, file: IO[bytes] | BytesIO):
     print(Place.count(session))
 
 
+def delete_locations(session):
+    Place.delete_all(session)
+    Settlement.delete_all(session)
+    SettlementType.delete_all(session)
+    Municipality.delete_all(session)
+    Region.delete_all(session)
+
+
 @permission_cli_command()
 @argument("csv", type=File("rb"))
 def upload(session, csv: IO[bytes]):
@@ -92,3 +100,8 @@ def upload(session, csv: IO[bytes]):
         upload_locations(session, csv)
     except ValueError as e:
         print(e.args[0])
+
+
+@permission_cli_command()
+def delete(session):
+    delete_locations(session)
