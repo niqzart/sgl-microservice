@@ -39,8 +39,8 @@ class CitiesControlResource(Resource):
     def post(self, session, csv: FileStorage):
         lines = csv.stream.readlines()
 
-        regions: dict[str, list[Region, Place]] = {}
-        municipalities: dict[str, list[Municipality, Place]] = {}
+        regions: dict[str, list[Region, Place, int]] = {}
+        municipalities: dict[str, list[Municipality, Place, int]] = {}
         types: dict[str, int] = {}
 
         for line in lines:
@@ -60,6 +60,8 @@ class CitiesControlResource(Resource):
             population = int(population) + int(children)
             Settlement.create_with_place(session, mun.id, type_id, set_name, oktmo, population,
                                          float(latitude), float(longitude))
+            regions[reg_name][2] += population
+            municipalities[mun_name][2] += population
 
         for _, place, population in list(regions.values()) + list(municipalities.values()):
             place.population = population

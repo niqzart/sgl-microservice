@@ -47,9 +47,9 @@ class Region(LocalBase):
     __tablename__ = "nq_regions"
 
     @classmethod
-    def create_with_place(cls, session, name: str) -> tuple[Region, Place]:
+    def create_with_place(cls, session, name: str) -> tuple[Region, Place, int]:
         result = super().create(session, name=name)
-        return result, Place.create(session, name, result.id)
+        return result, Place.create(session, name, result.id), 0
 
 
 class Municipality(LocalBase):
@@ -61,9 +61,9 @@ class Municipality(LocalBase):
     TempModel = LocalBase.BaseModel.nest_model(LocalBase.BaseModel, "region", "reg")
 
     @classmethod
-    def create_with_place(cls, session, name: str, reg_id: int) -> tuple[Municipality, Place]:
+    def create_with_place(cls, session, name: str, reg_id: int) -> tuple[Municipality, Place, int]:
         result = super().create(session, name=name, reg_id=reg_id)
-        return result, Place.create(session, name, reg_id, result.id)
+        return result, Place.create(session, name, reg_id, result.id), 0
 
 
 class SettlementType(LocalBase):
