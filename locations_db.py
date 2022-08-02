@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Type, TypeVar
 
-from sqlalchemy import Column, ForeignKey, select, delete, or_, and_, Index
+from sqlalchemy import Column, ForeignKey, select, delete, or_, and_
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import count
 from sqlalchemy.sql.sqltypes import Integer, String, Text, Float
@@ -93,6 +93,8 @@ class Settlement(LocalBase):
         return result, Place.create(session, name, result.mun.reg_id, mun_id, type_id, result.id, population)
 
 
+ALLOWED_SYMBOLS: set[str] = set(" \"()+-./0123456789<>ENU_clnux«»ЁАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЫЭЮЯ"
+                                "абвгдежзийклмнопрстуфхцчшщъыьэюяё—№")
 STRATEGY: int = 0
 
 
@@ -129,10 +131,37 @@ class Place(DeleteAllAble):
                               type_id=type_id, set_id=set_id, population=population)
 
     @classmethod
-    def get_all(cls, session, search: str, total: int = 10, strategy: int = STRATEGY) -> list[Place]:
+    def get_all(cls, session, search: str, total: int = None, strategy: int = STRATEGY) -> list[Place]:
+        if len(search) > 60 or any(sym not in ALLOWED_SYMBOLS for sym in search):
+            return []
+
+        if total is None:
+            total = 100 // (len(search) * 2) if len(search) < 6 else 5
         search_pattern = search + "%"
 
-        if strategy == 0:
+        def rank(place: Place):
+            if place.mun_id is None:
+                return 20
+            if place.set_id is None:
+                return 50 if search in place.reg.name else 10
+            result = 0
+            if search in place.reg.name:
+                result += 50
+            if search in place.mun.name:
+                result += 20
+            return result
+
+        def full_rank(place: Place):
+            return rank(place), place.population
+
+        if strategy % 2 == 0 and len(search) > 4:
+            results = cls.get_all(session, search[:4], total + 1)
+            if results != total + 1:
+                results = [r for r in results if search.lower() in r.name.lower()]
+                results.sort(key=full_rank, reverse=True)
+                return results
+
+        if strategy // 2 == 0:
             results: list[Place] = []
             result_ids = set()
             stmt = select(Settlement.id).order_by(Settlement.population.desc())
@@ -179,7 +208,7 @@ class Place(DeleteAllAble):
 
             return results
 
-        elif strategy == 1:
+        elif strategy // 2 == 1:
             stmt = select(cls).order_by(cls.population.desc())
             results = session.get_all(
                 stmt.limit(total)
