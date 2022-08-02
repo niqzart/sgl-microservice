@@ -3,7 +3,7 @@ from __future__ import annotations
 from flask_restx import Resource
 from flask_restx.reqparse import RequestParser
 
-from common import ResourceController, sessionmaker, User
+from common import ResourceController, sessionmaker
 from .locations_db import Place
 
 controller = ResourceController("locations", sessionmaker=sessionmaker)
@@ -15,7 +15,7 @@ class CitiesControlResource(Resource):
     parser.add_argument("search", required=True)
 
     @controller.doc_abort(400, "Empty search")
-    @controller.jwt_authorizer(User)
+    @controller.with_begin
     @controller.argument_parser(parser)
     @controller.marshal_list_with(Place.TempModel)
     def get(self, session, search: str) -> list[Place]:
