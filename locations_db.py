@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Type, TypeVar
 
-from sqlalchemy import Column, ForeignKey, select, delete
+from sqlalchemy import Column, ForeignKey, select, delete, or_, and_, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import count
 from sqlalchemy.sql.sqltypes import Integer, String, Text, Float
@@ -93,6 +93,10 @@ class Settlement(LocalBase):
         return result, Place.create(session, name, result.mun.reg_id, mun_id, type_id, result.id, population)
 
 
+def ilike_with_none(column: Column, search: str):
+    return or_(column.ilike(search), None)
+
+
 class Place(DeleteAllAble):
     __tablename__ = "nq_place"
 
@@ -122,5 +126,29 @@ class Place(DeleteAllAble):
                               type_id=type_id, set_id=set_id, population=population)
 
     @classmethod
-    def find_by_name(cls, session, name: str) -> Place:
-        return session.get_all(select(cls).filter(cls.name.ilike(name + "%")))
+    def get_all(cls, session, search: str, total: int = 10) -> list[Place]:
+        search_pattern = search + "%"
+
+        stmt = select(cls)
+        for part, column in cls.JOINS:
+            stmt = stmt.outerjoin(part, column == part.id)
+
+        stmt = stmt.filter(or_(
+            and_(Region.name.ilike(search_pattern), cls.set_id.is_(None), cls.mun_id.is_(None)),
+            and_(Municipality.name.ilike(search_pattern), cls.set_id.is_(None), cls.mun_id.is_not(None)),
+            and_(Settlement.name.ilike(search_pattern), cls.set_id.is_not(None), cls.mun_id.is_not(None)),
+        ))
+
+        stmt = stmt.order_by(
+            and_(ilike_with_none(Region.name, search_pattern), ilike_with_none(Municipality.name, search_pattern),
+                 ilike_with_none(Settlement.name, search_pattern)),
+            and_(ilike_with_none(Region.name, search_pattern), ilike_with_none(Settlement.name, search_pattern)),
+            and_(ilike_with_none(Region.name, search_pattern), ilike_with_none(Settlement.name, search_pattern)),
+            and_(ilike_with_none(Region.name, search_pattern), ilike_with_none(Municipality.name, search_pattern)),
+            ilike_with_none(Region.name, search_pattern),
+            ilike_with_none(Municipality.name, search_pattern),
+            ilike_with_none(Settlement.name, search_pattern),
+            cls.population.desc()
+        )
+
+        return session.get_all(stmt.limit(total))

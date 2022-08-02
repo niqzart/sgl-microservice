@@ -34,7 +34,7 @@ class CitiesControlResource(Resource):
         if len(search) == 0:
             controller.abort(400, "Empty search")
         t = time()
-        result = Place.find_by_name(session, search)
+        result = Place.get_all(session, search)
         print(time() - t)
         return result
 
