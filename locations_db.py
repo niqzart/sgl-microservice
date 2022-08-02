@@ -100,3 +100,7 @@ class Place(DeleteAllAble):
                type_id: int = None, set_id: int = None, population: int = 0) -> Place:
         return super().create(session, name=name, reg_id=reg_id, mun_id=mun_id,
                               type_id=type_id, set_id=set_id, population=population)
+
+    @classmethod
+    def find_by_name(cls, session, name: str) -> Place:
+        return session.get_all(select(cls).filter(cls.name.ilike(name + "%")))
