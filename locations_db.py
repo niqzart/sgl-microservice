@@ -93,6 +93,9 @@ class Settlement(LocalBase):
         return result, Place.create(session, name, result.mun.reg_id, mun_id, type_id, result.id, population)
 
 
+STRATEGY: int = 0
+
+
 def ilike_with_none(column: Column, search: str):
     return or_(column.ilike(search), None)
 
@@ -126,10 +129,57 @@ class Place(DeleteAllAble):
                               type_id=type_id, set_id=set_id, population=population)
 
     @classmethod
-    def get_all(cls, session, search: str, total: int = 10, strategy: int = 0) -> list[Place]:
+    def get_all(cls, session, search: str, total: int = 10, strategy: int = STRATEGY) -> list[Place]:
         search_pattern = search + "%"
 
         if strategy == 0:
+            results: list[Place] = []
+            result_ids = set()
+            stmt = select(Settlement.id).order_by(Settlement.population.desc())
+            p_stmt = select(cls).order_by(cls.population.desc())
+
+            def place_all(places: list[Place]):
+                places = [p for p in places if p.id not in result_ids]
+                results.extend(places)
+                result_ids.update(set(p.id for p in places))
+                return len(results) >= total
+
+            def place_all_set(subquery):
+                subquery = subquery.filter(Settlement.name.ilike(search_pattern)).limit(total - len(results))
+                return place_all(session.get_all(select(cls).filter(cls.set_id.in_(subquery))))
+
+            def place_all_other(query):
+                return place_all(session.get_all(query.limit(total - len(results))))
+
+            regions = session.get_all(select(Region.id).filter(Region.name.ilike(search_pattern)))
+            municipalities = session.get_all(select(Municipality.id).filter(Municipality.name.ilike(search_pattern)))
+            mun_stmt = select(Municipality.id).filter(Municipality.id.in_(municipalities))
+
+            if len(regions):
+                mun_regs = session.get_all(mun_stmt.filter(Municipality.reg_id.in_(regions)))
+                if len(mun_regs) and place_all_set(stmt.filter(Settlement.mun_id.in_(mun_regs))):
+                    return results
+
+                reg_muns = session.get_all(select(Municipality.id).filter(Municipality.reg_id.in_(regions)))
+                if len(reg_muns) and place_all_set(stmt.filter(Settlement.mun_id.in_(reg_muns))):
+                    return results
+
+            mun_no_regs = session.get_all(mun_stmt.filter(Municipality.reg_id.notin_(regions)))
+            if len(mun_no_regs) and place_all_set(stmt.filter(Settlement.mun_id.in_(mun_no_regs))):
+                return results
+
+            if len(regions) and place_all_other(p_stmt.filter(cls.mun_id.is_(None), cls.reg_id.in_(regions))):
+                return results
+
+            if len(municipalities) and place_all_other(
+                    p_stmt.filter(cls.set_id.is_(None), cls.mun_id.in_(municipalities))):
+                return results
+
+            place_all_set(stmt)
+
+            return results
+
+        elif strategy == 1:
             stmt = select(cls).order_by(cls.population.desc())
             results = session.get_all(
                 stmt.limit(total)
