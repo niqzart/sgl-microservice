@@ -12,6 +12,12 @@ manage_cities = permission_index.add_permission("manage locations")
 controller = MUBNamespace("locations", path="/locations/", sessionmaker=sessionmaker)
 
 
+def cache(dct, key, value_generator):
+    if key not in dct:
+        dct[key] = value_generator()
+    return dct[key]
+
+
 @controller.route("/")
 class CitiesControlResource(Resource):
     parser = RequestParser()
@@ -32,7 +38,12 @@ class CitiesControlResource(Resource):
     @controller.argument_parser(parser)
     def post(self, session, csv: FileStorage):
         lines = csv.stream.readlines()
-        for line in lines[1:]:
+
+        regions: dict[str, list[Region, Place]] = {}
+        municipalities: dict[str, list[Municipality, Place]] = {}
+        types: dict[str, int] = {}
+
+        for line in lines:
             line = line.decode("utf-8")
             params = [term.strip() for term in line.strip().split(",")[1:]]
             if len(params) != 9:
@@ -41,16 +52,21 @@ class CitiesControlResource(Resource):
             if mun_name == "null":
                 mun_name = reg_name
 
-            reg = Region.find_or_create(session, reg_name)
-            mun = Municipality.find_or_create(session, mun_name, reg_id=reg.id)
-            settlement_type = SettlementType.find_or_create(session, set_type)
+            reg = cache(regions, reg_name, lambda: list(Region.create_with_place(session, reg_name)))[0]
+            mun = cache(municipalities, mun_name, lambda: list(
+                Municipality.create_with_place(session, mun_name, reg_id=reg.id)))[0]
+            type_id = cache(types, set_type, lambda: SettlementType.find_or_create(session, set_type).id)
 
             population = int(population) + int(children)
-            Settlement.create(session, mun_id=mun.id, type_id=settlement_type.id, name=set_name,
-                              oktmo=oktmo, population=population, latitude=float(latitude), longitude=float(longitude))
+            Settlement.create_with_place(session, mun.id, type_id, set_name, oktmo, population,
+                                         float(latitude), float(longitude))
+
+        for _, place, population in list(regions.values()) + list(municipalities.values()):
+            place.population = population
 
     @permission_index.require_permission(controller, manage_cities, use_moderator=False)
     def delete(self, session):
+        Place.delete_all(session)
         Settlement.delete_all(session)
         SettlementType.delete_all(session)
         Municipality.delete_all(session)

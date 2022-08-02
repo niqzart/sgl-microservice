@@ -46,6 +46,11 @@ class LocalBase(DeleteAllAble):
 class Region(LocalBase):
     __tablename__ = "nq_regions"
 
+    @classmethod
+    def create_with_place(cls, session, name: str) -> tuple[Region, Place]:
+        result = super().create(session, name=name)
+        return result, Place.create(session, name, result.id)
+
 
 class Municipality(LocalBase):
     __tablename__ = "nq_municipalities"
@@ -54,6 +59,11 @@ class Municipality(LocalBase):
     reg = relationship("Region")
 
     TempModel = LocalBase.BaseModel.nest_model(LocalBase.BaseModel, "region", "reg")
+
+    @classmethod
+    def create_with_place(cls, session, name: str, reg_id: int) -> tuple[Municipality, Place]:
+        result = super().create(session, name=name, reg_id=reg_id)
+        return result, Place.create(session, name, reg_id, result.id)
 
 
 class SettlementType(LocalBase):
@@ -75,6 +85,13 @@ class Settlement(LocalBase):
 
     FullModel = LocalBase.BaseModel.column_model(population, latitude, longitude, oktmo)
 
+    @classmethod
+    def create_with_place(cls, session, mun_id: int, type_id: int, name: str, oktmo: str,
+                          population: int, latitude: float, longitude: float) -> tuple[Municipality, Place]:
+        result = super().create(session, mun_id=mun_id, type_id=type_id, name=name, oktmo=oktmo,
+                                population=population, latitude=latitude, longitude=longitude)
+        return result, Place.create(session, name, result.mun.reg_id, mun_id, type_id, result.id, population)
+
 
 class Place(DeleteAllAble):
     __tablename__ = "nq_place"
@@ -88,6 +105,9 @@ class Place(DeleteAllAble):
     type = relationship("SettlementType", foreign_keys=[type_id])
     set_id = Column(Integer, ForeignKey("nq_settlements.id"), nullable=True)
     set = relationship("Settlement", foreign_keys=[set_id])
+
+    population = Column(Integer, nullable=False)
+    name = Column(Text, nullable=False)
 
     TempModel = PydanticModel \
         .nest_model(LocalBase.BaseModel, "region", "reg") \
