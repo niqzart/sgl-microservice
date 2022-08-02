@@ -95,7 +95,7 @@ class Settlement(LocalBase):
 
 ALLOWED_SYMBOLS: set[str] = set(" \"()+-./0123456789<>ENU_clnux«»ЁАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЫЭЮЯ"
                                 "абвгдежзийклмнопрстуфхцчшщъыьэюяё—№")
-STRATEGY: int = 0
+STRATEGY: int = 4
 
 
 def ilike_with_none(column: Column, search: str):
@@ -117,6 +117,8 @@ class Place(DeleteAllAble):
 
     population = Column(Integer, nullable=False)
     name = Column(Text, nullable=False)
+
+    JOINS = [(Region, reg_id), (Municipality, mun_id), (Settlement, set_id)]
 
     TempModel = PydanticModel \
         .nest_model(LocalBase.BaseModel, "region", "reg") \
@@ -241,7 +243,7 @@ class Place(DeleteAllAble):
                 .filter(or_(Region.name.ilike(search_pattern), Municipality.name.ilike(search_pattern)))
             )
 
-            for part, column in reversed(cls.JOINS):
+            for part, column in cls.JOINS:
                 results += session.get_all(stmt.filter(
                     *[col.is_(None) for _, col in cls.JOINS if col != column],
                     column.in_(

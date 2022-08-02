@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 from time import time
+
 from flask_restx import Resource
 from flask_restx.reqparse import RequestParser
 from werkzeug.datastructures import FileStorage
 
 from common import sessionmaker
 from moderation import MUBNamespace, permission_index
-from .locations_db import Region, Municipality, SettlementType, Settlement, Place
 from .locations_cli import manage_locations, upload_locations, delete_locations
+from .locations_db import Place
 
 controller = MUBNamespace("locations", path="/locations/", sessionmaker=sessionmaker)
 
 CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
-STRATEGIES = (0, 1, 3, 4, 5, 6)
+STRATEGIES = (0, 1, 2, 3, 4, 5)
 
 
 @controller.route("/")
@@ -28,12 +29,16 @@ class CitiesControlResource(Resource):
     def get(self, session, search: str) -> list[Place]:
         if len(search) == 0:
             controller.abort(400, "Empty search")
-        times = []
-        for i in STRATEGIES:
+        times = {}
+        for i in range(6):
             t = time()
             result = Place.get_all(session, search, strategy=i)
-            times.append(time() - t)
-        print(*times)
+            times[i] = (time() - t) / 2
+        for i in range(5, -1, -1):
+            t = time()
+            result = Place.get_all(session, search, strategy=i)
+            times[i] += (time() - t) / 2
+        print(times)
         return result
 
     parser = RequestParser()
