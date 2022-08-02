@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import time
 from flask_restx import Resource
 from flask_restx.reqparse import RequestParser
 from werkzeug.datastructures import FileStorage
@@ -10,6 +11,8 @@ from .locations_db import Region, Municipality, SettlementType, Settlement, Plac
 
 manage_cities = permission_index.add_permission("manage locations")
 controller = MUBNamespace("locations", path="/locations/", sessionmaker=sessionmaker)
+
+CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
 
 
 def cache(dct, key, value_generator):
@@ -23,27 +26,46 @@ class CitiesControlResource(Resource):
     parser = RequestParser()
     parser.add_argument("search", required=True)
 
+    @controller.doc_abort(400, "Empty search")
     @permission_index.require_permission(controller, manage_cities, use_moderator=False)
     @controller.argument_parser(parser)
     @controller.marshal_list_with(Place.TempModel)
     def get(self, session, search: str) -> list[Place]:
         if len(search) == 0:
             controller.abort(400, "Empty search")
-        return Place.find_by_name(session, search)
+        t = time()
+        result = Place.find_by_name(session, search)
+        print(time() - t)
+        return result
 
     parser = RequestParser()
     parser.add_argument("csv", location="files", type=FileStorage, required=True)
 
+    @controller.doc_abort(400, "Invalid header")
+    @controller.doc_abort("400 ", "Invalid line")
     @permission_index.require_permission(controller, manage_cities, use_moderator=False)
     @controller.argument_parser(parser)
     def post(self, session, csv: FileStorage):
+        if not csv.stream.readline().decode("utf-8").strip() == CSV_HEADER:
+            controller.abort(400, "Invalid header")
         lines = csv.stream.readlines()
+        notify = len(lines) // 20
+        t = time()
+        c = time()
 
         regions: dict[str, list[Region, Place, int]] = {}
         municipalities: dict[str, list[Municipality, Place, int]] = {}
         types: dict[str, int] = {}
 
-        for line in lines:
+        for i, line in enumerate(lines):
+            if i != 0 and i % notify == 0:
+                percent = i // notify
+                elapsed_t = time() - t
+                elapsed_c = time() - c
+                print(f"{percent * 5:3}% | Time elapsed: {elapsed_t}s | "
+                      f"Time for step: {elapsed_c}s | ETA: {elapsed_c * (20 - percent)}s")
+                c = time()
+
             line = line.decode("utf-8")
             params = [term.strip() for term in line.strip().split(",")[1:]]
             if len(params) != 9:
@@ -65,6 +87,8 @@ class CitiesControlResource(Resource):
 
         for _, place, population in list(regions.values()) + list(municipalities.values()):
             place.population = population
+
+        print(Place.count(session))
 
     @permission_index.require_permission(controller, manage_cities, use_moderator=False)
     def delete(self, session):
