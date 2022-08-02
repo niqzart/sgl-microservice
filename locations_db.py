@@ -126,8 +126,38 @@ class Place(DeleteAllAble):
                               type_id=type_id, set_id=set_id, population=population)
 
     @classmethod
-    def get_all(cls, session, search: str, total: int = 10) -> list[Place]:
+    def get_all(cls, session, search: str, total: int = 10, strategy: int = 0) -> list[Place]:
         search_pattern = search + "%"
+
+        if strategy == 0:
+            stmt = select(cls).order_by(cls.population.desc())
+            results = session.get_all(
+                stmt.limit(total)
+                .join(Region, and_(cls.reg_id == Region.id, Region.name.ilike(search_pattern)))
+                .join(Municipality, and_(cls.mun_id == Municipality.id, Municipality.name.ilike(search_pattern)))
+                .join(Settlement, and_(cls.set_id == Settlement.id, Settlement.name.ilike(search_pattern)))
+            )
+
+            results += session.get_all(
+                stmt.limit(total - len(results))
+                .join(Region, cls.reg_id == Region.id)
+                .join(Municipality, cls.mun_id == Municipality.id)
+                .join(Settlement, and_(cls.set_id == Settlement.id, Settlement.name.ilike(search_pattern)))
+                .filter(or_(Region.name.ilike(search_pattern), Municipality.name.ilike(search_pattern)))
+            )
+
+            for part, column in reversed(cls.JOINS):
+                results += session.get_all(stmt.filter(
+                    *[col.is_(None) for _, col in cls.JOINS if col != column],
+                    column.in_(
+                        select(part.id)
+                        .filter(part.name.ilike(search_pattern))
+                        .order_by(cls.population.desc())
+                        .limit(total - len(results))
+                    )
+                ))
+
+            return results
 
         stmt = select(cls)
         for part, column in cls.JOINS:

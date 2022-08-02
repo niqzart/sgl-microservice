@@ -13,6 +13,7 @@ manage_cities = permission_index.add_permission("manage locations")
 controller = MUBNamespace("locations", path="/locations/", sessionmaker=sessionmaker)
 
 CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
+STRATEGIES = (0, 1)
 
 
 def cache(dct, key, value_generator):
@@ -33,9 +34,12 @@ class CitiesControlResource(Resource):
     def get(self, session, search: str) -> list[Place]:
         if len(search) == 0:
             controller.abort(400, "Empty search")
-        t = time()
-        result = Place.get_all(session, search)
-        print(time() - t)
+        times = []
+        for i in STRATEGIES:
+            t = time()
+            result = Place.get_all(session, search, strategy=i)
+            times.append(time() - t)
+        print(*times)
         return result
 
     parser = RequestParser()
