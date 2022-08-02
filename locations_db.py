@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Type, TypeVar
 
-from sqlalchemy import Column, ForeignKey, select
+from sqlalchemy import Column, ForeignKey, select, delete
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql.functions import count
 from sqlalchemy.sql.sqltypes import Integer, String, Text, Float
 
 from common import PydanticModel, Base
@@ -26,6 +27,17 @@ class LocalBase(Base):
         if entry is None:
             entry = cls.create(session, name=name, **kwargs)
         return entry
+
+    @classmethod
+    def count(cls, session) -> int:
+        return select(session.get_first(count(cls.id)))
+
+    @classmethod
+    def delete_all(cls, session):
+        count: int = cls.count(session)
+        session.execute(delete(cls))
+        session.flush()
+        return count
 
 
 class Region(LocalBase):

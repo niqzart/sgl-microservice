@@ -37,3 +37,10 @@ class CitiesControlResource(Resource):
             population = int(population) + int(children)
             Settlement.create(session, mun_id=mun.id, type_id=settlement_type.id, name=set_name,
                               oktmo=oktmo, population=population, latitude=float(latitude), longitude=float(longitude))
+
+    @permission_index.require_permission(controller, manage_cities, use_moderator=False)
+    def delete(self, session):
+        Settlement.delete_all(session)
+        SettlementType.delete_all(session)
+        Municipality.delete_all(session)
+        Region.delete_all(session)
