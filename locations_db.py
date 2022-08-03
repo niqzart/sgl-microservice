@@ -123,7 +123,7 @@ class Place(DeleteAllAble):
     TempModel = PydanticModel \
         .nest_model(LocalBase.BaseModel, "region", "reg") \
         .nest_model(LocalBase.BaseModel, "municipality", "mun") \
-        .nest_model(Settlement.FullModel, "settlement", "set") \
+        .nest_model(Settlement.FullModel, "settlement") \
         .nest_model(LocalBase.BaseModel, "type")
 
     @classmethod
