@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Type, TypeVar
+from typing import Type, TypeVar, Iterable
 
 from sqlalchemy import Column, ForeignKey, select, delete, or_, and_, Index
 from sqlalchemy.orm import relationship
@@ -93,11 +93,6 @@ class Settlement(LocalBase):
         return result, Place.create(session, name, result.mun.reg_id, mun_id, type_id, result.id, population)
 
 
-ALLOWED_SYMBOLS: set[str] = set(" \"()+-./0123456789<>ENU_clnux«»ЁАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЫЭЮЯ"
-                                "абвгдежзийклмнопрстуфхцчшщъыьэюяё—№")
-STRATEGY: int = 0
-
-
 def ilike_with_none(column: Column, search: str):
     return or_(column.ilike(search), None)
 
@@ -113,12 +108,17 @@ class Place(DeleteAllAble):
     type_id = Column(Integer, ForeignKey("nq_settlement_types.id"), nullable=True)
     type = relationship("SettlementType", foreign_keys=[type_id])
     set_id = Column(Integer, ForeignKey("nq_settlements.id"), nullable=True)
-    set = relationship("Settlement", foreign_keys=[set_id])
+    settlement = relationship("Settlement", foreign_keys=[set_id])
 
     population = Column(Integer, nullable=False)
     name = Column(Text, nullable=False)
 
+    ALLOWED_SYMBOLS: set[str] = set(" \"()+-./0123456789<>ENU_clnux«»ЁАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЫЭЮЯ"
+                                    "абвгдежзийклмнопрстуфхцчшщъыьэюяё—№")
     JOINS = [(Region, reg_id), (Municipality, mun_id), (Settlement, set_id)]
+    STRATEGY: int = 0
+    TOTAL: int = None
+    TRY_LENGTHS: Iterable[int] = (4, 10)
 
     TempModel = PydanticModel \
         .nest_model(LocalBase.BaseModel, "region", "reg") \
@@ -134,13 +134,14 @@ class Place(DeleteAllAble):
 
     @classmethod
     def get_all(cls, session, search: str, total: int = None, strategy: int = None) -> list[Place]:
-        if len(search) > 60 or any(sym not in ALLOWED_SYMBOLS for sym in search):
+        if len(search) > 60 or any(sym not in cls.ALLOWED_SYMBOLS for sym in search):
             return []
 
         if strategy is None:
-            strategy = STRATEGY
+            strategy = cls.STRATEGY
         if total is None:
-            total = 100 // (len(search) * 2) if len(search) < 6 else 5
+            total = cls.TOTAL or (100 // (len(search) * 2) if len(search) < 6 else 5)
+        print(total)
         search_pattern = search + "%"
 
         def rank(place: Place):
@@ -158,12 +159,14 @@ class Place(DeleteAllAble):
         def full_rank(place: Place):
             return rank(place), place.population
 
-        if strategy % 2 == 0 and len(search) > 4:
-            results = cls.get_all(session, search[:4], total + 1)
-            if results != total + 1:
-                results = [r for r in results if search.lower() in r.name.lower()]
-                results.sort(key=full_rank, reverse=True)
-                return results
+        if strategy % 2 == 0:
+            for length in cls.TRY_LENGTHS:
+                if len(search) > length:
+                    results = cls.get_all(session, search[:length], total + 1)
+                    if results != total + 1:
+                        results = [r for r in results if search.lower() in r.name.lower()]
+                        results.sort(key=full_rank, reverse=True)
+                        return results
 
         if strategy // 4 == 0:
             if strategy == 1 and len(search) > 4:
