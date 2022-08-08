@@ -7,11 +7,11 @@ from flask_restx.reqparse import RequestParser
 from werkzeug.datastructures import FileStorage
 
 from common import sessionmaker
-from moderation import MUBNamespace, permission_index
+from moderation import MUBController, permission_index
 from .locations_cli import manage_locations, upload_locations, delete_locations
 from .locations_db import Place
 
-controller = MUBNamespace("locations", path="/locations/", sessionmaker=sessionmaker)
+controller = MUBController("locations", path="/locations/", sessionmaker=sessionmaker)
 
 CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
 
