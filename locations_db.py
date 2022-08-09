@@ -43,12 +43,23 @@ class LocalBase(DeleteAllAble):
         return entry
 
 
+class County(LocalBase):
+    __tablename__ = "nq_counties"
+
+    @classmethod
+    def create(cls, session, name: str) -> County:
+        return super().create(session, name=name)
+
+
 class Region(LocalBase):
     __tablename__ = "nq_regions"
 
+    cty_id = Column(Integer, ForeignKey("nq_counties.id"), nullable=False)
+    cty = relationship("County")
+
     @classmethod
-    def create_with_place(cls, session, name: str) -> tuple[Region, Place, int]:
-        result = super().create(session, name=name)
+    def create_with_place(cls, session, name: str, cty_id: int) -> tuple[Region, Place, int]:
+        result = super().create(session, name=name, cty_id=cty_id)
         return result, Place.create(session, name, result.id), 0
 
 
