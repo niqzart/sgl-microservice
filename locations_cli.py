@@ -11,12 +11,12 @@ from flask import Blueprint
 
 from common import sessionmaker
 from moderation import permission_index
-from .locations_db import Region, Municipality, SettlementType, Settlement, Place
+from .locations_db import Region, Municipality, SettlementType, Settlement, Place, County
 
 manage_locations = permission_index.add_permission("manage locations")
 locations_cli_blueprint = Blueprint("locations", __name__)
 
-CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
+CSV_HEADER = "county,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
 STRATEGIES = (0, 1, 2, 3, 4, 5)
 
 
@@ -49,6 +49,7 @@ def upload_locations(session, file: IO[bytes] | BytesIO):
     t = time()
     c = time()
 
+    counties: dict[str, int] = {}
     regions: dict[str, list[Region, Place, int]] = {}
     municipalities: dict[str, list[Municipality, Place, int]] = {}
     types: dict[str, int] = {}
@@ -63,14 +64,15 @@ def upload_locations(session, file: IO[bytes] | BytesIO):
             c = time()
 
         line = line.decode("utf-8")
-        params = [term.strip() for term in line.strip().split(",")[1:]]
-        if len(params) != 9:
+        params = [term.strip() for term in line.strip().split(",")]
+        if len(params) != 10:
             raise ValueError("Invalid line: " + line)
-        reg_name, mun_name, set_name, set_type, population, children, latitude, longitude, oktmo = params
+        county_name, reg_name, mun_name, set_name, set_type, population, children, latitude, longitude, oktmo = params
         if mun_name == "null":
             mun_name = reg_name
 
-        reg = cache(regions, reg_name, lambda: list(Region.create_with_place(session, reg_name)))[0]
+        cty = cache(counties, county_name, lambda: County.create(session, county_name).id)
+        reg = cache(regions, reg_name, lambda: list(Region.create_with_place(session, reg_name, cty)))[0]
         mun = cache(municipalities, mun_name, lambda: list(
             Municipality.create_with_place(session, mun_name, reg_id=reg.id)))[0]
         type_id = cache(types, set_type, lambda: SettlementType.find_or_create(session, set_type).id)
