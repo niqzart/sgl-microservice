@@ -24,6 +24,9 @@ class LocationsConfig:
         except (FileNotFoundError, ValueError):
             self.update_now(app)
 
+    def compare_expiry(self, other_date: datetime | None):
+        return other_date is not None and self.last_modified <= other_date
+
 
 locations_config = LocationsConfig()
 

@@ -1,12 +1,30 @@
 from __future__ import annotations
 
+from functools import wraps
+
+from flask import request, current_app
 from flask_restx import Resource
 from flask_restx.reqparse import RequestParser
 
 from common import ResourceController, sessionmaker
 from .locations_db import Place, County, Region
+from .locations_ini import locations_config
 
 controller = ResourceController("locations", sessionmaker=sessionmaker)
+
+
+def with_caching():
+    def with_caching_wrapper(function):
+        @wraps(function)
+        def with_caching_inner(*args, **kwargs):
+            if current_app.config.get("NQ_ENABLE_CACHING", True) \
+                    and locations_config.compare_expiry(request.if_modified_since):
+                return "", 304
+            return function(*args, **kwargs)
+
+        return with_caching_inner
+
+    return with_caching_wrapper
 
 
 @controller.route("/search/")
@@ -15,10 +33,11 @@ class LocationsSearcher(Resource):
     parser.add_argument("search", required=True)
 
     @controller.doc_abort(400, "Empty search")
+    @with_caching()
     @controller.with_begin
     @controller.argument_parser(parser)
     @controller.marshal_list_with(Place.FullModel)
-    def get(self, session, search: str) -> list[Place]:
+    def get(self, session, search: str):
         if len(search) == 0:
             controller.abort(400, "Empty search")
         return Place.get_all(session, search)
@@ -33,7 +52,8 @@ class CountyIndexModel(County.BaseModel):
 
 
 @controller.route("/counties/")
-class LocationsTreeer(Resource):
+class CountiesTreeer(Resource):
+    @with_caching()
     @controller.with_begin
     @controller.marshal_list_with(CountyIndexModel)
     def get(self, session) -> list[County]:
@@ -41,7 +61,8 @@ class LocationsTreeer(Resource):
 
 
 @controller.route("/regions/<int:region_id>/settlements/")
-class LocationsTreeer(Resource):
+class RegionsTreeer(Resource):
+    @with_caching()
     @controller.with_begin
     @controller.database_searcher(Region, use_session=True, check_only=True)
     @controller.marshal_list_with(Place.SetMunModel)
