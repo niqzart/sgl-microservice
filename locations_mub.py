@@ -13,8 +13,6 @@ from .locations_db import Place
 
 controller = MUBController("locations", path="/locations/", sessionmaker=sessionmaker)
 
-CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
-
 
 @controller.route("/")
 class CitiesControlResource(Resource):

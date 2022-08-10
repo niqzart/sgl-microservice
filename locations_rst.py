@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import wraps
 
-from flask import request, current_app
+from flask import request, current_app, jsonify
 from flask_restx import Resource
 from flask_restx.reqparse import RequestParser
 
@@ -17,10 +17,14 @@ def with_caching():
     def with_caching_wrapper(function):
         @wraps(function)
         def with_caching_inner(*args, **kwargs):
-            if current_app.config.get("NQ_ENABLE_CACHING", True) \
-                    and locations_config.compare_expiry(request.if_modified_since):
+            if current_app.config.get("NQ_DISABLE_CACHING", False):
+                return function(*args, **kwargs)
+            if locations_config.compare_expiry(request.if_modified_since):
                 return "", 304
-            return function(*args, **kwargs)
+            response = jsonify(function(*args, **kwargs))
+            response.last_modified = locations_config.last_modified
+            response.add_etag()
+            return response
 
         return with_caching_inner
 
