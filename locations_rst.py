@@ -23,7 +23,6 @@ def with_caching():
                 return "", 304
             response = jsonify(function(*args, **kwargs))
             response.last_modified = locations_config.last_modified
-            response.add_etag()
             return response
 
         return with_caching_inner
