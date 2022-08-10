@@ -7,7 +7,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import count
 from sqlalchemy.sql.sqltypes import Integer, String, Text, Float
 
-from common import PydanticModel, Base
+from common import PydanticModel, Base, Identifiable
 
 t = TypeVar("t", bound="LocalBase")
 
@@ -26,14 +26,19 @@ class DeleteAllAble(Base):
         return select(session.get_first(count(cls.id)))
 
 
-class LocalBase(DeleteAllAble):
+class LocalBase(DeleteAllAble, Identifiable):
     __abstract__ = True
+    not_found_text = "location not found"
 
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     aliases = Column(Text, nullable=True)
 
     BaseModel = PydanticModel.column_model(id=id, name=name, aliases=aliases)
+
+    @classmethod
+    def find_by_id(cls: Type[t], session, entry_id: int) -> t | None:
+        return session.get_first(select(cls).filter_by(id=entry_id))
 
     @classmethod
     def find_or_create(cls: Type[t], session, name: str, **kwargs) -> t:
@@ -46,16 +51,22 @@ class LocalBase(DeleteAllAble):
 class County(LocalBase):
     __tablename__ = "nq_counties"
 
+    regions = relationship("Region", back_populates="cty")
+
     @classmethod
     def create(cls, session, name: str) -> County:
         return super().create(session, name=name)
+
+    @classmethod
+    def get_all(cls, session) -> list[County]:
+        return session.get_all(select(cls))
 
 
 class Region(LocalBase):
     __tablename__ = "nq_regions"
 
     cty_id = Column(Integer, ForeignKey("nq_counties.id"), nullable=False)
-    cty = relationship("County")
+    cty = relationship("County", back_populates="regions")
 
     @classmethod
     def create_with_place(cls, session, name: str, cty_id: int) -> tuple[Region, Place, int]:
@@ -131,17 +142,23 @@ class Place(DeleteAllAble):
     TOTAL: int = None
     TRY_LENGTHS: Iterable[int] = (4, 10)
 
-    TempModel = PydanticModel \
-        .nest_model(LocalBase.BaseModel, "region", "reg") \
-        .nest_model(LocalBase.BaseModel, "municipality", "mun") \
-        .nest_model(Settlement.FullModel, "settlement") \
+    SettlementModel = PydanticModel\
+        .nest_model(Settlement.BaseModel, "settlement")\
         .nest_model(LocalBase.BaseModel, "type")
+    SetMunModel = SettlementModel.nest_model(LocalBase.BaseModel, "municipality", "mun")
+    FullModel = SetMunModel.nest_model(LocalBase.BaseModel, "region", "reg")
 
     @classmethod
     def create(cls, session, name: str, reg_id: int, mun_id: int = None,
                type_id: int = None, set_id: int = None, population: int = 0) -> Place:
         return super().create(session, name=name, reg_id=reg_id, mun_id=mun_id,
                               type_id=type_id, set_id=set_id, population=population)
+
+    @classmethod
+    def get_most_populous(cls, session, reg_id: int, limit: int = 20) -> list[Place]:
+        stmt = select(cls).filter_by(reg_id=reg_id).filter(cls.set_id.is_not(None))
+        stmt = stmt.order_by(cls.population.desc()).limit(limit)
+        return session.get_all(stmt)
 
     @classmethod
     def get_all(cls, session, search: str, total: int = None, strategy: int = None) -> list[Place]:

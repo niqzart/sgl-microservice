@@ -25,7 +25,7 @@ class CitiesControlResource(Resource):
     @controller.doc_abort(400, "Empty search")
     @permission_index.require_permission(controller, manage_locations, use_moderator=False)
     @controller.argument_parser(parser)
-    @controller.marshal_list_with(Place.TempModel)
+    @controller.marshal_list_with(Place.FullModel)
     def get(self, session, search: str, strategy: int) -> list[Place]:
         if len(search) == 0:
             controller.abort(400, "Empty search")
