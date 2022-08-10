@@ -7,11 +7,12 @@ from time import time
 from typing import IO
 
 from click import echo, argument, File
-from flask import Blueprint
+from flask import Blueprint, current_app
 
 from common import sessionmaker
 from moderation import permission_index
 from .locations_db import Region, Municipality, SettlementType, Settlement, Place, County
+from .locations_ini import locations_config
 
 manage_locations = permission_index.add_permission("manage locations")
 locations_cli_blueprint = Blueprint("locations", __name__)
@@ -87,6 +88,7 @@ def upload_locations(session, file: IO[bytes] | BytesIO):
         place.population = population
 
     print(Place.count(session))
+    locations_config.update_now(current_app)
 
 
 def delete_locations(session):
@@ -95,6 +97,7 @@ def delete_locations(session):
     SettlementType.delete_all(session)
     Municipality.delete_all(session)
     Region.delete_all(session)
+    locations_config.update_now(current_app)
 
 
 def time_one(session, search: str, strategy: int) -> tuple[float, set[int]]:
