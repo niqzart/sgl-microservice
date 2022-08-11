@@ -142,7 +142,8 @@ class Place(DeleteAllAble):
     TOTAL: int = None
     TRY_LENGTHS: Iterable[int] = (4, 10)
 
-    SettlementModel = PydanticModel\
+    BaseModel = PydanticModel.column_model(id)
+    SettlementModel = BaseModel\
         .nest_model(Settlement.BaseModel, "settlement")\
         .nest_model(LocalBase.BaseModel, "type")
     SetMunModel = SettlementModel.nest_model(LocalBase.BaseModel, "municipality", "mun")
