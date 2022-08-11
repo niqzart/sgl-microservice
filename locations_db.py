@@ -169,7 +169,6 @@ class Place(DeleteAllAble):
             strategy = cls.STRATEGY
         if total is None:
             total = cls.TOTAL or (100 // (len(search) * 2) if len(search) < 6 else 5)
-        print(total)
         search_pattern = search + "%"
 
         def rank(place: Place):

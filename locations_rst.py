@@ -23,6 +23,7 @@ def with_caching():
                 return "", 304
             response = jsonify(function(*args, **kwargs))
             response.last_modified = locations_config.last_modified
+            response.headers.add_header("X-Accel-Expires", "@1")
             return response
 
         return with_caching_inner
