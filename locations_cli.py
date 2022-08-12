@@ -21,17 +21,16 @@ CSV_HEADER = "county,region,municipality,settlement,type,population,children,lat
 STRATEGIES = (0, 1, 2, 3, 4, 5)
 
 
-def permission_cli_command():
+def permission_cli_command(use_session: bool = True):
     def permission_cli_command_wrapper(function):
         @locations_cli_blueprint.cli.command(function.__name__.replace("_", "-"))
         @wraps(function)
-        @sessionmaker.with_begin
         def permission_cli_command_inner(*args, **kwargs):
             if not permission_index.initialized:
                 return echo("FATAL: Permission index has not been initialized")
             return function(*args, **kwargs)
 
-        return permission_cli_command_inner
+        return sessionmaker.with_begin(permission_cli_command_inner) if use_session else permission_cli_command_inner
 
     return permission_cli_command_wrapper
 
@@ -40,6 +39,10 @@ def cache(dct, key, value_generator):
     if key not in dct:
         dct[key] = value_generator()
     return dct[key]
+
+
+def mark_locations_updated():
+    locations_config.update_now(current_app)
 
 
 def upload_locations(session, file: IO[bytes] | BytesIO):
@@ -126,6 +129,11 @@ def test_search(session, test_searches: dict[str, list[str]]):
                 if len(diff := results.symmetric_difference(check_sum[test_search])):
                     print(f"[strategy {strategy}] Some ids don't match for {test_search}: ", diff)
             print(f"[strategy {strategy}]", *speeds)
+
+
+@permission_cli_command(False)
+def mark_updated():
+    mark_locations_updated()
 
 
 @permission_cli_command()
