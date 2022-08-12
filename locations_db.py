@@ -128,7 +128,7 @@ def ilike_with_none(column: Column, search: str):
 
 
 class Place(DeleteAllAble, Identifiable):
-    __tablename__ = "nq_place"
+    __tablename__ = "nq_places"
     not_found_text = "place not found"
 
     id = Column(Integer, primary_key=True)
