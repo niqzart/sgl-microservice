@@ -163,6 +163,20 @@ class Place(DeleteAllAble, Identifiable):
         .nest_model(LocalBase.BaseModel, "settlement") \
         .nest_model(LocalBase.BaseModel, "type")
 
+    class CompressedModel(BaseModel):
+        region: str
+        municipality: str = None
+        settlement: str = None
+        type: str = None
+
+        @classmethod
+        def callback_convert(cls, callback, orm_object: Place, **_) -> None:
+            callback(region=orm_object.reg.name)
+            if orm_object.mun_id is not None:
+                callback(municipality=orm_object.mun.name)
+            if orm_object.set_id is not None:
+                callback(settlement=orm_object.settlement.name, type=orm_object.type.name)
+
     @classmethod
     def find_by_id(cls: Type[t], session, entry_id: int) -> t | None:
         return session.get_first(select(cls).filter_by(id=entry_id))

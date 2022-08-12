@@ -40,7 +40,7 @@ class LocationsSearcher(Resource):
     @with_caching()
     @controller.with_begin
     @controller.argument_parser(parser)
-    @controller.marshal_list_with(Place.FullModel)
+    @controller.marshal_list_with(Place.CompressedModel)
     def get(self, session, search: str):
         if len(search) == 0:
             controller.abort(400, "Empty search")
