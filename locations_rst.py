@@ -7,7 +7,7 @@ from flask_restx import Resource
 from flask_restx.reqparse import RequestParser
 
 from common import ResourceController, sessionmaker
-from .locations_db import Place, County, Region
+from .locations_db import Place, County
 from .locations_ini import locations_config
 
 controller = ResourceController("locations", sessionmaker=sessionmaker)
@@ -47,12 +47,14 @@ class LocationsSearcher(Resource):
         return Place.get_all(session, search)
 
 
+@County.BaseModel.include_context("session")
 class CountyIndexModel(County.BaseModel):
-    regions: list[Region.BaseModel]
+    regions: list[Place.RegionModel]
 
     @classmethod
-    def callback_convert(cls, callback, orm_object: County, **_):
-        callback(regions=[Region.BaseModel.convert(reg) for reg in orm_object.regions])
+    def callback_convert(cls, callback, orm_object: County, session=None, **_):
+        callback(regions=[Place.RegionModel.convert(reg)
+                          for reg in Place.get_regions_by_county(session, orm_object.id)])
 
 
 @controller.route("/counties/")
@@ -64,12 +66,12 @@ class CountiesTreeer(Resource):
         return County.get_all(session)
 
 
-@controller.route("/regions/<int:region_id>/settlements/")
+@controller.route("/regions/<int:place_id>/settlements/")
 class RegionsTreeer(Resource):
     @with_caching()
     @controller.with_begin
-    @controller.database_searcher(Region, use_session=True, check_only=True)
-    @controller.marshal_list_with(Place.SetMunModel)
-    def get(self, session, region_id: int) -> list[Place]:
+    @controller.database_searcher(Place, use_session=True)
+    @controller.marshal_list_with(Place.SettlementModel)
+    def get(self, session, place: Place) -> list[Place]:
         """Top-20 most populated settlements of this region"""
-        return Place.get_most_populous(session, region_id)
+        return Place.get_most_populous(session, place.reg_id)

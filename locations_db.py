@@ -34,7 +34,8 @@ class LocalBase(DeleteAllAble, Identifiable):
     name = Column(Text, nullable=False)
     aliases = Column(Text, nullable=True)
 
-    BaseModel = PydanticModel.column_model(id=id, name=name, aliases=aliases)
+    NameModel = PydanticModel.column_model(name=name)
+    BaseModel = NameModel.column_model(id=id, aliases=aliases)
 
     @classmethod
     def find_by_id(cls: Type[t], session, entry_id: int) -> t | None:
@@ -107,6 +108,13 @@ class Settlement(LocalBase):
 
     FullModel = LocalBase.BaseModel.column_model(population, latitude, longitude, oktmo)
 
+    class NameTypeModel(LocalBase.NameModel):
+        type: str
+
+        @classmethod
+        def callback_convert(cls, callback, orm_object: Settlement, **_) -> None:
+            callback(type=orm_object.type.name)
+
     @classmethod
     def create_with_place(cls, session, mun_id: int, type_id: int, name: str, oktmo: str,
                           population: int, latitude: float, longitude: float) -> tuple[Municipality, Place]:
@@ -119,8 +127,9 @@ def ilike_with_none(column: Column, search: str):
     return or_(column.ilike(search), None)
 
 
-class Place(DeleteAllAble):
+class Place(DeleteAllAble, Identifiable):
     __tablename__ = "nq_place"
+    not_found_text = "place not found"
 
     id = Column(Integer, primary_key=True)
     reg_id = Column(Integer, ForeignKey("nq_regions.id"), nullable=False)
@@ -143,17 +152,36 @@ class Place(DeleteAllAble):
     TRY_LENGTHS: Iterable[int] = (4, 10)
 
     BaseModel = PydanticModel.column_model(id)
-    SettlementModel = BaseModel\
-        .nest_model(Settlement.BaseModel, "settlement")\
+
+    RegionModel = BaseModel.nest_flat_model(LocalBase.NameModel, "reg")
+    MunicipalityModel = BaseModel.nest_flat_model(LocalBase.NameModel, "mun")
+    SettlementModel = BaseModel.nest_flat_model(Settlement.NameTypeModel, "settlement")
+
+    FullModel = BaseModel \
+        .nest_model(LocalBase.BaseModel, "region", "reg") \
+        .nest_model(LocalBase.BaseModel, "municipality", "mun") \
+        .nest_model(LocalBase.BaseModel, "settlement") \
         .nest_model(LocalBase.BaseModel, "type")
-    SetMunModel = SettlementModel.nest_model(LocalBase.BaseModel, "municipality", "mun")
-    FullModel = SetMunModel.nest_model(LocalBase.BaseModel, "region", "reg")
+
+    @classmethod
+    def find_by_id(cls: Type[t], session, entry_id: int) -> t | None:
+        return session.get_first(select(cls).filter_by(id=entry_id))
 
     @classmethod
     def create(cls, session, name: str, reg_id: int, mun_id: int = None,
                type_id: int = None, set_id: int = None, population: int = 0) -> Place:
         return super().create(session, name=name, reg_id=reg_id, mun_id=mun_id,
                               type_id=type_id, set_id=set_id, population=population)
+
+    @classmethod
+    def get_regions_by_county(cls, session, county_id: int) -> list[Place]:
+        return session.get_all(
+            select(cls)
+            .filter(cls.mun_id.is_(None))
+            .join(Region)
+            .filter_by(cty_id=county_id)
+            .order_by(cls.name)
+        )
 
     @classmethod
     def get_most_populous(cls, session, reg_id: int, limit: int = 20) -> list[Place]:
