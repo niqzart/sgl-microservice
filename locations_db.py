@@ -12,30 +12,16 @@ from common import PydanticModel, Base, Identifiable
 t = TypeVar("t", bound="LocalBase")
 
 
-class DeleteAllAble(Base):
-    __abstract__ = True
-
-    @classmethod
-    def delete_all(cls, session):
-        print(cls.count(session))
-        session.execute(delete(cls))
-        session.flush()
-
-    @classmethod
-    def count(cls, session) -> int:
-        return select(session.get_first(count(cls.id)))
-
-
-class LocalBase(DeleteAllAble, Identifiable):
+class LocalBase(Base, Identifiable):
     __abstract__ = True
     not_found_text = "location not found"
 
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
-    aliases = Column(Text, nullable=True)
 
+    IDModel = PydanticModel.column_model(id=id)
     NameModel = PydanticModel.column_model(name=name)
-    BaseModel = NameModel.column_model(id=id, aliases=aliases)
+    BaseModel = NameModel.combine_with(IDModel)
 
     @classmethod
     def find_by_id(cls: Type[t], session, entry_id: int) -> t | None:
@@ -47,6 +33,16 @@ class LocalBase(DeleteAllAble, Identifiable):
         if entry is None:
             entry = cls.create(session, name=name, **kwargs)
         return entry
+
+    @classmethod
+    def delete_all(cls, session):
+        print(cls.count(session))
+        session.execute(delete(cls))
+        session.flush()
+
+    @classmethod
+    def count(cls, session) -> int:
+        return select(session.get_first(count(cls.id)))
 
 
 class County(LocalBase):
@@ -127,11 +123,10 @@ def ilike_with_none(column: Column, search: str):
     return or_(column.ilike(search), None)
 
 
-class Place(DeleteAllAble, Identifiable):
+class Place(LocalBase):
     __tablename__ = "nq_places"
     not_found_text = "place not found"
 
-    id = Column(Integer, primary_key=True)
     reg_id = Column(Integer, ForeignKey("nq_regions.id"), nullable=False)
     reg = relationship("Region", foreign_keys=[reg_id])
     mun_id = Column(Integer, ForeignKey("nq_municipalities.id"), nullable=True)
@@ -151,19 +146,17 @@ class Place(DeleteAllAble, Identifiable):
     TOTAL: int = None
     TRY_LENGTHS: Iterable[int] = (4, 10)
 
-    BaseModel = PydanticModel.column_model(id)
+    RegionModel = LocalBase.IDModel.nest_flat_model(LocalBase.NameModel, "reg")
+    MunicipalityModel = LocalBase.IDModel.nest_flat_model(LocalBase.NameModel, "mun")
+    SettlementModel = LocalBase.IDModel.nest_flat_model(Settlement.NameTypeModel, "settlement")
 
-    RegionModel = BaseModel.nest_flat_model(LocalBase.NameModel, "reg")
-    MunicipalityModel = BaseModel.nest_flat_model(LocalBase.NameModel, "mun")
-    SettlementModel = BaseModel.nest_flat_model(Settlement.NameTypeModel, "settlement")
-
-    FullModel = BaseModel \
+    FullModel = LocalBase.IDModel \
         .nest_model(LocalBase.BaseModel, "region", "reg") \
         .nest_model(LocalBase.BaseModel, "municipality", "mun") \
         .nest_model(LocalBase.BaseModel, "settlement") \
         .nest_model(LocalBase.BaseModel, "type")
 
-    class CompressedModel(BaseModel):
+    class CompressedModel(LocalBase.IDModel):
         region: str
         municipality: str = None
         settlement: str = None
