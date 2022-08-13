@@ -7,30 +7,30 @@ from time import time
 from typing import IO
 
 from click import echo, argument, File
-from flask import Blueprint
+from flask import Blueprint, current_app
 
 from common import sessionmaker
 from moderation import permission_index
-from .locations_db import Region, Municipality, SettlementType, Settlement, Place
+from .locations_db import Region, Municipality, SettlementType, Settlement, Place, County
+from .locations_ini import locations_config
 
 manage_locations = permission_index.add_permission("manage locations")
 locations_cli_blueprint = Blueprint("locations", __name__)
 
-CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
+CSV_HEADER = "county,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
 STRATEGIES = (0, 1, 2, 3, 4, 5)
 
 
-def permission_cli_command():
+def permission_cli_command(use_session: bool = True):
     def permission_cli_command_wrapper(function):
         @locations_cli_blueprint.cli.command(function.__name__.replace("_", "-"))
         @wraps(function)
-        @sessionmaker.with_begin
         def permission_cli_command_inner(*args, **kwargs):
             if not permission_index.initialized:
                 return echo("FATAL: Permission index has not been initialized")
             return function(*args, **kwargs)
 
-        return permission_cli_command_inner
+        return sessionmaker.with_begin(permission_cli_command_inner) if use_session else permission_cli_command_inner
 
     return permission_cli_command_wrapper
 
@@ -41,6 +41,10 @@ def cache(dct, key, value_generator):
     return dct[key]
 
 
+def mark_locations_updated():
+    locations_config.update_now(current_app)
+
+
 def upload_locations(session, file: IO[bytes] | BytesIO):
     if not file.readline().decode("utf-8").strip() == CSV_HEADER:
         raise ValueError("Invalid header")
@@ -49,6 +53,7 @@ def upload_locations(session, file: IO[bytes] | BytesIO):
     t = time()
     c = time()
 
+    counties: dict[str, int] = {}
     regions: dict[str, list[Region, Place, int]] = {}
     municipalities: dict[str, list[Municipality, Place, int]] = {}
     types: dict[str, int] = {}
@@ -63,14 +68,15 @@ def upload_locations(session, file: IO[bytes] | BytesIO):
             c = time()
 
         line = line.decode("utf-8")
-        params = [term.strip() for term in line.strip().split(",")[1:]]
-        if len(params) != 9:
+        params = [term.strip() for term in line.strip().split(",")]
+        if len(params) != 10:
             raise ValueError("Invalid line: " + line)
-        reg_name, mun_name, set_name, set_type, population, children, latitude, longitude, oktmo = params
+        county_name, reg_name, mun_name, set_name, set_type, population, children, latitude, longitude, oktmo = params
         if mun_name == "null":
             mun_name = reg_name
 
-        reg = cache(regions, reg_name, lambda: list(Region.create_with_place(session, reg_name)))[0]
+        cty = cache(counties, county_name, lambda: County.create(session, county_name).id)
+        reg = cache(regions, reg_name, lambda: list(Region.create_with_place(session, reg_name, cty)))[0]
         mun = cache(municipalities, mun_name, lambda: list(
             Municipality.create_with_place(session, mun_name, reg_id=reg.id)))[0]
         type_id = cache(types, set_type, lambda: SettlementType.find_or_create(session, set_type).id)
@@ -85,6 +91,7 @@ def upload_locations(session, file: IO[bytes] | BytesIO):
         place.population = population
 
     print(Place.count(session))
+    locations_config.update_now(current_app)
 
 
 def delete_locations(session):
@@ -93,6 +100,7 @@ def delete_locations(session):
     SettlementType.delete_all(session)
     Municipality.delete_all(session)
     Region.delete_all(session)
+    locations_config.update_now(current_app)
 
 
 def time_one(session, search: str, strategy: int) -> tuple[float, set[int]]:
@@ -121,6 +129,11 @@ def test_search(session, test_searches: dict[str, list[str]]):
                 if len(diff := results.symmetric_difference(check_sum[test_search])):
                     print(f"[strategy {strategy}] Some ids don't match for {test_search}: ", diff)
             print(f"[strategy {strategy}]", *speeds)
+
+
+@permission_cli_command(False)
+def mark_updated():
+    mark_locations_updated()
 
 
 @permission_cli_command()

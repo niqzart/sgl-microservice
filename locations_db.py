@@ -7,13 +7,32 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import count
 from sqlalchemy.sql.sqltypes import Integer, String, Text, Float
 
-from common import PydanticModel, Base
+from common import PydanticModel, Base, Identifiable
 
 t = TypeVar("t", bound="LocalBase")
 
 
-class DeleteAllAble(Base):
+class LocalBase(Base, Identifiable):
     __abstract__ = True
+    not_found_text = "location not found"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(Text, nullable=False)
+
+    IDModel = PydanticModel.column_model(id=id)
+    NameModel = PydanticModel.column_model(name=name)
+    BaseModel = NameModel.combine_with(IDModel)
+
+    @classmethod
+    def find_by_id(cls: Type[t], session, entry_id: int) -> t | None:
+        return session.get_first(select(cls).filter_by(id=entry_id))
+
+    @classmethod
+    def find_or_create(cls: Type[t], session, name: str, **kwargs) -> t:
+        entry = session.get_first(select(cls).filter_by(name=name))
+        if entry is None:
+            entry = cls.create(session, name=name, **kwargs)
+        return entry
 
     @classmethod
     def delete_all(cls, session):
@@ -26,29 +45,29 @@ class DeleteAllAble(Base):
         return select(session.get_first(count(cls.id)))
 
 
-class LocalBase(DeleteAllAble):
-    __abstract__ = True
+class County(LocalBase):
+    __tablename__ = "nq_counties"
 
-    id = Column(Integer, primary_key=True)
-    name = Column(Text, nullable=False)
-    aliases = Column(Text, nullable=True)
-
-    BaseModel = PydanticModel.column_model(id=id, name=name, aliases=aliases)
+    regions = relationship("Region", back_populates="cty")
 
     @classmethod
-    def find_or_create(cls: Type[t], session, name: str, **kwargs) -> t:
-        entry = session.get_first(select(cls).filter_by(name=name))
-        if entry is None:
-            entry = cls.create(session, name=name, **kwargs)
-        return entry
+    def create(cls, session, name: str) -> County:
+        return super().create(session, name=name)
+
+    @classmethod
+    def get_all(cls, session) -> list[County]:
+        return session.get_all(select(cls))
 
 
 class Region(LocalBase):
     __tablename__ = "nq_regions"
 
+    cty_id = Column(Integer, ForeignKey("nq_counties.id"), nullable=False)
+    cty = relationship("County", back_populates="regions")
+
     @classmethod
-    def create_with_place(cls, session, name: str) -> tuple[Region, Place, int]:
-        result = super().create(session, name=name)
+    def create_with_place(cls, session, name: str, cty_id: int) -> tuple[Region, Place, int]:
+        result = super().create(session, name=name, cty_id=cty_id)
         return result, Place.create(session, name, result.id), 0
 
 
@@ -85,6 +104,13 @@ class Settlement(LocalBase):
 
     FullModel = LocalBase.BaseModel.column_model(population, latitude, longitude, oktmo)
 
+    class NameTypeModel(LocalBase.NameModel):
+        type: str
+
+        @classmethod
+        def callback_convert(cls, callback, orm_object: Settlement, **_) -> None:
+            callback(type=orm_object.type.name)
+
     @classmethod
     def create_with_place(cls, session, mun_id: int, type_id: int, name: str, oktmo: str,
                           population: int, latitude: float, longitude: float) -> tuple[Municipality, Place]:
@@ -97,10 +123,10 @@ def ilike_with_none(column: Column, search: str):
     return or_(column.ilike(search), None)
 
 
-class Place(DeleteAllAble):
-    __tablename__ = "nq_place"
+class Place(LocalBase):
+    __tablename__ = "nq_places"
+    not_found_text = "place not found"
 
-    id = Column(Integer, primary_key=True)
     reg_id = Column(Integer, ForeignKey("nq_regions.id"), nullable=False)
     reg = relationship("Region", foreign_keys=[reg_id])
     mun_id = Column(Integer, ForeignKey("nq_municipalities.id"), nullable=True)
@@ -120,17 +146,55 @@ class Place(DeleteAllAble):
     TOTAL: int = None
     TRY_LENGTHS: Iterable[int] = (4, 10)
 
-    TempModel = PydanticModel \
+    RegionModel = LocalBase.IDModel.nest_flat_model(LocalBase.NameModel, "reg")
+    MunicipalityModel = LocalBase.IDModel.nest_flat_model(LocalBase.NameModel, "mun")
+    SettlementModel = LocalBase.IDModel.nest_flat_model(Settlement.NameTypeModel, "settlement")
+
+    FullModel = LocalBase.IDModel \
         .nest_model(LocalBase.BaseModel, "region", "reg") \
         .nest_model(LocalBase.BaseModel, "municipality", "mun") \
-        .nest_model(Settlement.FullModel, "settlement") \
+        .nest_model(LocalBase.BaseModel, "settlement") \
         .nest_model(LocalBase.BaseModel, "type")
+
+    class CompressedModel(LocalBase.IDModel):
+        region: str
+        municipality: str = None
+        settlement: str = None
+        type: str = None
+
+        @classmethod
+        def callback_convert(cls, callback, orm_object: Place, **_) -> None:
+            callback(region=orm_object.reg.name)
+            if orm_object.mun_id is not None:
+                callback(municipality=orm_object.mun.name)
+            if orm_object.set_id is not None:
+                callback(settlement=orm_object.settlement.name, type=orm_object.type.name)
+
+    @classmethod
+    def find_by_id(cls: Type[t], session, entry_id: int) -> t | None:
+        return session.get_first(select(cls).filter_by(id=entry_id))
 
     @classmethod
     def create(cls, session, name: str, reg_id: int, mun_id: int = None,
                type_id: int = None, set_id: int = None, population: int = 0) -> Place:
         return super().create(session, name=name, reg_id=reg_id, mun_id=mun_id,
                               type_id=type_id, set_id=set_id, population=population)
+
+    @classmethod
+    def get_regions_by_county(cls, session, county_id: int) -> list[Place]:
+        return session.get_all(
+            select(cls)
+            .filter(cls.mun_id.is_(None))
+            .join(Region)
+            .filter_by(cty_id=county_id)
+            .order_by(cls.name)
+        )
+
+    @classmethod
+    def get_most_populous(cls, session, reg_id: int, limit: int = 20) -> list[Place]:
+        stmt = select(cls).filter_by(reg_id=reg_id).filter(cls.set_id.is_not(None))
+        stmt = stmt.order_by(cls.population.desc()).limit(limit)
+        return session.get_all(stmt)
 
     @classmethod
     def get_all(cls, session, search: str, total: int = None, strategy: int = None) -> list[Place]:
@@ -141,7 +205,6 @@ class Place(DeleteAllAble):
             strategy = cls.STRATEGY
         if total is None:
             total = cls.TOTAL or (100 // (len(search) * 2) if len(search) < 6 else 5)
-        print(total)
         search_pattern = search + "%"
 
         def rank(place: Place):

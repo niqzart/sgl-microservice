@@ -8,12 +8,10 @@ from werkzeug.datastructures import FileStorage
 
 from common import sessionmaker
 from moderation import MUBController, permission_index
-from .locations_cli import manage_locations, upload_locations, delete_locations
+from .locations_cli import manage_locations, upload_locations, delete_locations, mark_locations_updated
 from .locations_db import Place
 
 controller = MUBController("locations", path="/locations/", sessionmaker=sessionmaker)
-
-CSV_HEADER = "id,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
 
 
 @controller.route("/")
@@ -25,7 +23,7 @@ class CitiesControlResource(Resource):
     @controller.doc_abort(400, "Empty search")
     @permission_index.require_permission(controller, manage_locations, use_moderator=False)
     @controller.argument_parser(parser)
-    @controller.marshal_list_with(Place.TempModel)
+    @controller.marshal_list_with(Place.FullModel)
     def get(self, session, search: str, strategy: int) -> list[Place]:
         if len(search) == 0:
             controller.abort(400, "Empty search")
@@ -58,3 +56,10 @@ class CitiesControlResource(Resource):
     @permission_index.require_permission(controller, manage_locations, use_moderator=False)
     def delete(self, session):
         delete_locations(session)
+
+
+@controller.route("/mark-updated/")
+class UpdatedMarkResource(Resource):
+    @permission_index.require_permission(controller, manage_locations, use_session=False, use_moderator=False)
+    def post(self):
+        mark_locations_updated()
