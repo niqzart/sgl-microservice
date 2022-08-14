@@ -146,7 +146,7 @@ class Place(LocalBase):
     TOTAL: int = None
     TRY_LENGTHS: Iterable[int] = (4, 10)
 
-    RegionModel = LocalBase.IDModel.nest_flat_model(LocalBase.NameModel, "reg")
+    RegionModel = LocalBase.IDModel.column_model(region=reg_id).nest_flat_model(LocalBase.NameModel, "reg")
     MunicipalityModel = LocalBase.IDModel.nest_flat_model(LocalBase.NameModel, "mun")
     SettlementModel = LocalBase.IDModel.nest_flat_model(Settlement.NameTypeModel, "settlement")
 
@@ -197,8 +197,12 @@ class Place(LocalBase):
         return session.get_all(stmt)
 
     @classmethod
+    def is_search_invalid(cls, search: str) -> bool:
+        return len(search) > 60 or any(sym not in cls.ALLOWED_SYMBOLS for sym in search)
+
+    @classmethod
     def get_all(cls, session, search: str, total: int = None, strategy: int = None) -> list[Place]:
-        if len(search) > 60 or any(sym not in cls.ALLOWED_SYMBOLS for sym in search):
+        if cls.is_search_invalid(search):
             return []
 
         if strategy is None:

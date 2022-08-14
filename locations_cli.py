@@ -6,7 +6,7 @@ from json import load
 from time import time
 from typing import IO
 
-from click import echo, argument, File
+from click import echo, argument, File, option
 from flask import Blueprint, current_app
 
 from common import sessionmaker
@@ -41,11 +41,11 @@ def cache(dct, key, value_generator):
     return dct[key]
 
 
-def mark_locations_updated():
-    locations_config.update_now(current_app)
+def mark_locations_updated(clear_cache: bool = True):
+    locations_config.update_now(current_app, clear_cache)
 
 
-def upload_locations(session, file: IO[bytes] | BytesIO):
+def upload_locations(session, file: IO[bytes] | BytesIO, clear_cache: bool = True):
     if not file.readline().decode("utf-8").strip() == CSV_HEADER:
         raise ValueError("Invalid header")
     lines = file.readlines()
@@ -91,16 +91,16 @@ def upload_locations(session, file: IO[bytes] | BytesIO):
         place.population = population
 
     print(Place.count(session))
-    locations_config.update_now(current_app)
+    locations_config.update_now(current_app, clear_cache)
 
 
-def delete_locations(session):
+def delete_locations(session, clear_cache: bool = True):
     Place.delete_all(session)
     Settlement.delete_all(session)
     SettlementType.delete_all(session)
     Municipality.delete_all(session)
     Region.delete_all(session)
-    locations_config.update_now(current_app)
+    locations_config.update_now(current_app, clear_cache)
 
 
 def time_one(session, search: str, strategy: int) -> tuple[float, set[int]]:
@@ -132,22 +132,25 @@ def test_search(session, test_searches: dict[str, list[str]]):
 
 
 @permission_cli_command(False)
-def mark_updated():
-    mark_locations_updated()
+@option("-s", "--save-cache", is_flag=True)
+def mark_updated(save_cache: bool):
+    mark_locations_updated(not save_cache)
 
 
 @permission_cli_command()
 @argument("csv", type=File("rb"))
-def upload(session, csv: IO[bytes]):
+@option("-s", "--save-cache", is_flag=True)
+def upload(session, csv: IO[bytes], save_cache: bool):
     try:
-        upload_locations(session, csv)
+        upload_locations(session, csv, not save_cache)
     except ValueError as e:
         print(e.args[0])
 
 
 @permission_cli_command()
-def delete(session):
-    delete_locations(session)
+@option("-s", "--save-cache", is_flag=True)
+def delete(session, save_cache: bool):
+    delete_locations(session, not save_cache)
 
 
 @permission_cli_command()
