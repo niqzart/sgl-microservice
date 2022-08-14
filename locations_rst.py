@@ -103,9 +103,9 @@ def setup(controller: ResourceController = None, search_cache=None, important_ca
 
     class RegionsTreeer(Resource):
         @with_revalidate()
-        @with_caching(important_cache, "region-", "region_id")
         @controller.with_begin
         @controller.database_searcher(Region, use_session=True, check_only=True)
+        @with_caching(important_cache, "region-", "region_id")
         @controller.marshal_list_with(Place.SettlementModel)
         def get(self, session, region_id: int) -> list[Place]:
             """Top-20 most populated settlements of this region"""
