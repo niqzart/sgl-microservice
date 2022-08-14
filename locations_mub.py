@@ -43,14 +43,15 @@ def setup(controller: MUBController = None) -> MUBController:
 
         parser = RequestParser()
         parser.add_argument("csv", location="files", type=FileStorage, required=True)
+        parser.add_argument("clear-cache", dest="clear_cache", type=bool, default=True, required=True)
 
         @controller.doc_abort(400, "Invalid header")
         @controller.doc_abort("400 ", "Invalid line")
         @controller.require_permission(manage_locations, use_moderator=False)
         @controller.argument_parser(parser)
-        def post(self, session, csv: FileStorage):
+        def post(self, session, csv: FileStorage, clear_cache: bool):
             try:
-                upload_locations(session, csv.stream)
+                upload_locations(session, csv.stream, clear_cache)
             except ValueError as e:
                 controller.abort(400, e.args[0])
 
@@ -59,9 +60,13 @@ def setup(controller: MUBController = None) -> MUBController:
             delete_locations(session)
 
     class UpdatedMarkResource(Resource):
+        parser = RequestParser()
+        parser.add_argument("clear-cache", dest="clear_cache", type=bool, default=True, required=True)
+
         @controller.require_permission(manage_locations, use_session=False, use_moderator=False)
-        def post(self):
-            mark_locations_updated()
+        @controller.argument_parser(parser)
+        def post(self, clear_cache: bool):
+            mark_locations_updated(clear_cache)
 
     controller.route("/")(CitiesControlResource)
     controller.route("/mark-updated/")(UpdatedMarkResource)
