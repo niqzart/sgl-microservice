@@ -102,10 +102,11 @@ class Settlement(LocalBase):
 
     class NameTypeModel(LocalBase.NameModel):
         type: str
+        data: bool
 
         @classmethod
         def callback_convert(cls, callback, orm_object: Settlement, **_) -> None:
-            callback(type=orm_object.type.name)
+            callback(type=orm_object.type.name, data=orm_object.data is not None)
 
     @classmethod
     def create_with_place(cls, session, mun_id: int, type_id: int,
