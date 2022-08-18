@@ -48,59 +48,64 @@ def mark_locations_updated(clear_cache: bool = True):
     locations_config.update_now(current_app, clear_cache)
 
 
-def upload_locations(session, file: IO[bytes] | BytesIO, json: IO[bytes] | BytesIO, clear_cache: bool = True):
-    header = file.readline().decode("utf-8").strip().split(",")
-    if len(header) < 6 or any(header[i] != CSV_HEADER[i] for i in range(6)):
-        raise ValueError("Invalid header")
-    lines = file.readlines()
-    notify = len(lines) // 20
-    t = time()
-    c = time()
+def upload_locations(session, file: IO[bytes] | BytesIO = None,
+                     json: IO[bytes] | BytesIO = None,
+                     clear_cache: bool = True):
+    if file is not None:
+        header = file.readline().decode("utf-8").strip().split(",")
+        if len(header) < 6 or any(header[i] != CSV_HEADER[i] for i in range(6)):
+            raise ValueError("Invalid header")
+        lines = file.readlines()
+        notify = len(lines) // 20
+        t = time()
+        c = time()
 
-    counties: dict[str, int] = {}
-    regions: dict[str, list[Region, Place, int]] = {}
-    municipalities: dict[str, list[Municipality, Place, int]] = {}
-    types: dict[str, int] = {}
+        counties: dict[str, int] = {}
+        regions: dict[str, list[Region, Place, int]] = {}
+        municipalities: dict[str, list[Municipality, Place, int]] = {}
+        types: dict[str, int] = {}
 
-    for i, line in enumerate(lines):
-        if i != 0 and i % notify == 0:
-            percent = i // notify
-            elapsed_t = time() - t
-            elapsed_c = time() - c
-            print(f"{percent * 5:3}% | Time elapsed: {elapsed_t}s | "
-                  f"Time for step: {elapsed_c}s | ETA: {elapsed_c * (20 - percent)}s")
-            c = time()
+        for i, line in enumerate(lines):
+            if i != 0 and i % notify == 0:
+                percent = i // notify
+                elapsed_t = time() - t
+                elapsed_c = time() - c
+                print(f"{percent * 5:3}% | Time elapsed: {elapsed_t}s | "
+                      f"Time for step: {elapsed_c}s | ETA: {elapsed_c * (20 - percent)}s")
+                c = time()
 
-        line = line.decode("utf-8")
-        params = [term.strip() for term in line.strip().split(",")]
-        if len(params) < 6:
-            raise ValueError("Invalid line: " + line)
-        county_name, reg_name, mun_name, set_name, set_type, population = params[:6]
-        if mun_name == "null":
-            mun_name = reg_name
+            line = line.decode("utf-8")
+            params = [term.strip() for term in line.strip().split(",")]
+            if len(params) < 6:
+                raise ValueError("Invalid line: " + line)
+            county_name, reg_name, mun_name, set_name, set_type, population = params[:6]
+            if mun_name == "null":
+                mun_name = reg_name
 
-        cty = cache(counties, county_name, lambda: County.create(session, county_name).id)
-        reg = cache(regions, reg_name, lambda: list(Region.create_with_place(session, reg_name, cty)))[0]
-        mun = cache(municipalities, mun_name, lambda: list(
-            Municipality.create_with_place(session, mun_name, reg_id=reg.id)))[0]
-        type_id = cache(types, set_type, lambda: SettlementType.find_or_create(session, set_type).id)
+            cty = cache(counties, county_name, lambda: County.create(session, county_name).id)
+            reg = cache(regions, reg_name, lambda: list(Region.create_with_place(session, reg_name, cty)))[0]
+            mun = cache(municipalities, mun_name, lambda: list(
+                Municipality.create_with_place(session, mun_name, reg_id=reg.id)))[0]
+            type_id = cache(types, set_type, lambda: SettlementType.find_or_create(session, set_type).id)
 
-        population = int(population)
-        Settlement.create_with_place(session, mun.id, type_id, set_name, population)
-        regions[reg_name][2] += population
-        municipalities[mun_name][2] += population
+            population = int(population)
+            Settlement.create_with_place(session, mun.id, type_id, set_name, population)
+            regions[reg_name][2] += population
+            municipalities[mun_name][2] += population
 
-    for _, place, population in list(regions.values()) + list(municipalities.values()):
-        place.population = population
+        for _, place, population in list(regions.values()) + list(municipalities.values()):
+            place.population = population
 
-    settlement_data = load(json)
-    for name, data in settlement_data.items():
-        settlement = Settlement.find_by_name(session, name)
-        if settlement is None:
-            raise KeyError(f"Settlement {name} from json not found in the database")
-        settlement.data = data
+        print(Place.count(session))
 
-    print(Place.count(session))
+    if json is not None:
+        settlement_data = load(json)
+        for name, data in settlement_data.items():
+            settlement = Settlement.find_by_name(session, name)
+            if settlement is None:
+                raise KeyError(f"Settlement {name} from json not found in the database")
+            settlement.data = data
+
     locations_config.update_now(current_app, clear_cache)
 
 
@@ -154,6 +159,26 @@ def mark_updated(save_cache: bool):
 def upload(session, csv: IO[bytes], json: IO[bytes], save_cache: bool):
     try:
         upload_locations(session, csv, json, not save_cache)
+    except ValueError as e:
+        print(e.args[0])
+
+
+@permission_cli_command()
+@argument("csv", type=File("rb"))
+@option("-s", "--save-cache", is_flag=True)
+def upload_csv(session, csv: IO[bytes], save_cache: bool):
+    try:
+        upload_locations(session, csv, clear_cache=not save_cache)
+    except ValueError as e:
+        print(e.args[0])
+
+
+@permission_cli_command()
+@argument("json", type=File("rb"))
+@option("-s", "--save-cache", is_flag=True)
+def upload_json(session, json: IO[bytes], save_cache: bool):
+    try:
+        upload_locations(session, json=json, clear_cache=not save_cache)
     except ValueError as e:
         print(e.args[0])
 
