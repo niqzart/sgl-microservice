@@ -5,7 +5,7 @@ from typing import Type, TypeVar, Iterable
 from sqlalchemy import Column, ForeignKey, select, delete, or_, and_, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import count
-from sqlalchemy.sql.sqltypes import Integer, String, Text, Float
+from sqlalchemy.sql.sqltypes import Integer, Text
 
 from common import PydanticModel, Base, Identifiable
 
@@ -98,11 +98,6 @@ class Settlement(LocalBase):
     type = relationship("SettlementType")
 
     population = Column(Integer, nullable=False)
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
-    oktmo = Column(String(11), nullable=False)
-
-    FullModel = LocalBase.BaseModel.column_model(population, latitude, longitude, oktmo)
 
     class NameTypeModel(LocalBase.NameModel):
         type: str
@@ -112,10 +107,9 @@ class Settlement(LocalBase):
             callback(type=orm_object.type.name)
 
     @classmethod
-    def create_with_place(cls, session, mun_id: int, type_id: int, name: str, oktmo: str,
-                          population: int, latitude: float, longitude: float) -> tuple[Municipality, Place]:
-        result = super().create(session, mun_id=mun_id, type_id=type_id, name=name, oktmo=oktmo,
-                                population=population, latitude=latitude, longitude=longitude)
+    def create_with_place(cls, session, mun_id: int, type_id: int,
+                          name: str, population: int) -> tuple[Municipality, Place]:
+        result = super().create(session, mun_id=mun_id, type_id=type_id, name=name, population=population)
         return result, Place.create(session, name, result.mun.reg_id, mun_id, type_id, result.id, population)
 
 

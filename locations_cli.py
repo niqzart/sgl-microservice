@@ -17,7 +17,7 @@ from .locations_ini import locations_config
 manage_locations = permission_index.add_permission("manage locations")
 locations_cli_blueprint = Blueprint("locations", __name__)
 
-CSV_HEADER = "county,region,municipality,settlement,type,population,children,latitude_dd,longitude_dd,oktmo"
+CSV_HEADER = ("county", "region", "municipality", "settlement", "type", "population")
 STRATEGIES = (0, 1, 2, 3, 4, 5)
 
 
@@ -46,7 +46,8 @@ def mark_locations_updated(clear_cache: bool = True):
 
 
 def upload_locations(session, file: IO[bytes] | BytesIO, clear_cache: bool = True):
-    if not file.readline().decode("utf-8").strip() == CSV_HEADER:
+    header = file.readline().decode("utf-8").strip().split(",")
+    if len(header) < 6 or header[:6] != CSV_HEADER:
         raise ValueError("Invalid header")
     lines = file.readlines()
     notify = len(lines) // 20
@@ -69,9 +70,9 @@ def upload_locations(session, file: IO[bytes] | BytesIO, clear_cache: bool = Tru
 
         line = line.decode("utf-8")
         params = [term.strip() for term in line.strip().split(",")]
-        if len(params) != 10:
+        if len(params) < 6:
             raise ValueError("Invalid line: " + line)
-        county_name, reg_name, mun_name, set_name, set_type, population, children, latitude, longitude, oktmo = params
+        county_name, reg_name, mun_name, set_name, set_type, population = params[:6]
         if mun_name == "null":
             mun_name = reg_name
 
@@ -81,9 +82,7 @@ def upload_locations(session, file: IO[bytes] | BytesIO, clear_cache: bool = Tru
             Municipality.create_with_place(session, mun_name, reg_id=reg.id)))[0]
         type_id = cache(types, set_type, lambda: SettlementType.find_or_create(session, set_type).id)
 
-        population = int(population) + int(children)
-        Settlement.create_with_place(session, mun.id, type_id, set_name, oktmo, population,
-                                     float(latitude), float(longitude))
+        Settlement.create_with_place(session, mun.id, type_id, set_name, int(population))
         regions[reg_name][2] += population
         municipalities[mun_name][2] += population
 
