@@ -12,6 +12,10 @@ from .locations_db import Place, County, Region
 from .locations_ini import locations_config
 
 
+def nop_decorator(function):
+    return function
+
+
 def with_revalidate():
     def with_revalidate_wrapper(function):
         @wraps(function)
@@ -52,7 +56,10 @@ def parse_search(controller):
     return parse_search_wrapper
 
 
-def with_caching(cache: Cache, key_prefix: str, cache_key: str = None):
+def with_caching(cache: Cache | None, key_prefix: str, cache_key: str = None):
+    if cache is None:
+        return nop_decorator
+
     def with_caching_wrapper(function):
         @wraps(function)
         def with_caching_inner(*args, **kwargs):
@@ -71,9 +78,13 @@ def with_caching(cache: Cache, key_prefix: str, cache_key: str = None):
     return with_caching_wrapper
 
 
-def setup(controller: ResourceController = None, search_cache=None, important_cache=None) -> ResourceController:
+def setup(*, controller: ResourceController = None, search_cache: Cache | None, important_cache: Cache | None,
+          settlement_get_model) -> ResourceController:
     if controller is None:
         controller = ResourceController("locations", sessionmaker=sessionmaker)
+
+    settlement_get_model = controller.model(getattr(settlement_get_model, "name", None) or "NQ.Settlement.GetModel",
+                                            settlement_get_model)
 
     class LocationsSearcher(Resource):  # TODO fix docs here
         @with_revalidate()
@@ -105,7 +116,6 @@ def setup(controller: ResourceController = None, search_cache=None, important_ca
 
     class RegionsTreeer(Resource):
         @with_revalidate()
-        @controller.with_begin
         @controller.database_searcher(Region, use_session=True, check_only=True)
         @with_caching(important_cache, "region-", "region_id")
         @controller.marshal_list_with(Place.SettlementModel)
@@ -113,8 +123,19 @@ def setup(controller: ResourceController = None, search_cache=None, important_ca
             """Top-20 most populated settlements of this region"""
             return Place.get_most_populous(session, region_id)
 
+    class SettlementGetter(Resource):
+        @controller.doc_abort(400, "Not a settlement")
+        @with_revalidate()
+        @controller.database_searcher(Place)
+        @controller.marshal_with(settlement_get_model)
+        def get(self, place: Place):
+            if place.set_id is None:
+                controller.abort(400, "Not a settlement")
+            return place.settlement.data
+
     controller.route("/search/")(LocationsSearcher)
     controller.route("/counties/")(CountiesTreeer)
     controller.route("/regions/<int:region_id>/settlements/")(RegionsTreeer)
+    controller.route("/settlements/<int:place_id>/")(SettlementGetter)
 
     return controller

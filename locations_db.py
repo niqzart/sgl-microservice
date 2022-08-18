@@ -159,6 +159,7 @@ class Place(LocalBase):
         region: str
         municipality: str = None
         settlement: str = None
+        data: bool = False
         type: str = None
 
         @classmethod
@@ -167,7 +168,8 @@ class Place(LocalBase):
             if orm_object.mun_id is not None:
                 callback(municipality=orm_object.mun.name)
             if orm_object.set_id is not None:
-                callback(settlement=orm_object.settlement.name, type=orm_object.type.name)
+                callback(settlement=orm_object.settlement.name, type=orm_object.type.name,
+                         data=orm_object.settlement.data is not None)
 
     @classmethod
     def find_by_id(cls: Type[t], session, entry_id: int) -> t | None:
