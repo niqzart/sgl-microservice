@@ -14,7 +14,7 @@ t = TypeVar("t", bound="LocalBase")
 
 class LocalBase(Base, Identifiable):
     __abstract__ = True
-    not_found_text = "location not found"
+    not_found_text = "Location not found"
 
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
@@ -125,7 +125,7 @@ def ilike_with_none(column: Column, search: str):
 
 class Place(LocalBase):
     __tablename__ = "nq_places"
-    not_found_text = "place not found"
+    not_found_text = "Place not found"
 
     reg_id = Column(Integer, ForeignKey("nq_regions.id"), nullable=False)
     reg = relationship("Region", foreign_keys=[reg_id])

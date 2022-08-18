@@ -36,8 +36,8 @@ def parse_search(controller):
 
     def parse_search_wrapper(function):
         @controller.doc_abort(400, "Empty search")
-        @wraps(function)
         @controller.argument_parser(parser)
+        @wraps(function)
         def parse_search_inner(*args, search, **kwargs):
             if len(search) == 0:
                 response = jsonify("Empty search")
@@ -75,7 +75,7 @@ def setup(controller: ResourceController = None, search_cache=None, important_ca
     if controller is None:
         controller = ResourceController("locations", sessionmaker=sessionmaker)
 
-    class LocationsSearcher(Resource):
+    class LocationsSearcher(Resource):  # TODO fix docs here
         @with_revalidate()
         @parse_search(controller)
         @with_caching(search_cache, "search-", "search")
@@ -92,6 +92,8 @@ def setup(controller: ResourceController = None, search_cache=None, important_ca
         def callback_convert(cls, callback, orm_object: County, session=None, **_):
             callback(regions=[Place.RegionModel.convert(reg)
                               for reg in Place.get_regions_by_county(session, orm_object.id)])
+
+    CountyIndexModel.name = "CountyIndexModel"
 
     class CountiesTreeer(Resource):
         @with_revalidate()
