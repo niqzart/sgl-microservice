@@ -25,6 +25,8 @@ def with_revalidate():
                 return Response(status=304)
 
             response = function(*args, **kwargs)
+            if not isinstance(response, Response):
+                response = jsonify(response)
             response.last_modified = locations_config.last_modified
             response.headers.add_header("X-Accel-Expires", "@1")
             return response
