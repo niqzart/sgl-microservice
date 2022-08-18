@@ -24,13 +24,16 @@ STRATEGIES = (0, 1, 2, 3, 4, 5)
 def permission_cli_command(use_session: bool = True):
     def permission_cli_command_wrapper(function):
         @locations_cli_blueprint.cli.command(function.__name__.replace("_", "-"))
+        @sessionmaker.with_begin
         @wraps(function)
         def permission_cli_command_inner(*args, **kwargs):
             if not permission_index.initialized:
                 return echo("FATAL: Permission index has not been initialized")
+            if not use_session:
+                kwargs.pop("session")
             return function(*args, **kwargs)
 
-        return sessionmaker.with_begin(permission_cli_command_inner) if use_session else permission_cli_command_inner
+        return permission_cli_command_inner
 
     return permission_cli_command_wrapper
 
@@ -45,9 +48,9 @@ def mark_locations_updated(clear_cache: bool = True):
     locations_config.update_now(current_app, clear_cache)
 
 
-def upload_locations(session, file: IO[bytes] | BytesIO, clear_cache: bool = True):
+def upload_locations(session, file: IO[bytes] | BytesIO, json: IO[bytes] | BytesIO, clear_cache: bool = True):
     header = file.readline().decode("utf-8").strip().split(",")
-    if len(header) < 6 or header[:6] != CSV_HEADER:
+    if len(header) < 6 or any(header[i] != CSV_HEADER[i] for i in range(6)):
         raise ValueError("Invalid header")
     lines = file.readlines()
     notify = len(lines) // 20
@@ -82,12 +85,20 @@ def upload_locations(session, file: IO[bytes] | BytesIO, clear_cache: bool = Tru
             Municipality.create_with_place(session, mun_name, reg_id=reg.id)))[0]
         type_id = cache(types, set_type, lambda: SettlementType.find_or_create(session, set_type).id)
 
-        Settlement.create_with_place(session, mun.id, type_id, set_name, int(population))
+        population = int(population)
+        Settlement.create_with_place(session, mun.id, type_id, set_name, population)
         regions[reg_name][2] += population
         municipalities[mun_name][2] += population
 
     for _, place, population in list(regions.values()) + list(municipalities.values()):
         place.population = population
+
+    settlement_data = load(json)
+    for name, data in settlement_data.items():
+        settlement = Settlement.find_by_name(session, name)
+        if settlement is None:
+            raise KeyError(f"Settlement {name} from json not found in the database")
+        settlement.data = data
 
     print(Place.count(session))
     locations_config.update_now(current_app, clear_cache)
@@ -138,10 +149,11 @@ def mark_updated(save_cache: bool):
 
 @permission_cli_command()
 @argument("csv", type=File("rb"))
+@argument("json", type=File("rb"))
 @option("-s", "--save-cache", is_flag=True)
-def upload(session, csv: IO[bytes], save_cache: bool):
+def upload(session, csv: IO[bytes], json: IO[bytes], save_cache: bool):
     try:
-        upload_locations(session, csv, not save_cache)
+        upload_locations(session, csv, json, not save_cache)
     except ValueError as e:
         print(e.args[0])
 

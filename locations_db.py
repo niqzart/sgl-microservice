@@ -5,7 +5,7 @@ from typing import Type, TypeVar, Iterable
 from sqlalchemy import Column, ForeignKey, select, delete, or_, and_, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import count
-from sqlalchemy.sql.sqltypes import Integer, Text
+from sqlalchemy.sql.sqltypes import Integer, Text, JSON
 
 from common import PydanticModel, Base, Identifiable
 
@@ -98,6 +98,7 @@ class Settlement(LocalBase):
     type = relationship("SettlementType")
 
     population = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=True)
 
     class NameTypeModel(LocalBase.NameModel):
         type: str
@@ -111,6 +112,10 @@ class Settlement(LocalBase):
                           name: str, population: int) -> tuple[Municipality, Place]:
         result = super().create(session, mun_id=mun_id, type_id=type_id, name=name, population=population)
         return result, Place.create(session, name, result.mun.reg_id, mun_id, type_id, result.id, population)
+
+    @classmethod
+    def find_by_name(cls, session, name: str) -> Settlement | None:
+        return session.get_first(select(cls).filter_by(name=name).order_by(cls.population.desc()).limit(1))
 
 
 def ilike_with_none(column: Column, search: str):
