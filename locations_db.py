@@ -100,7 +100,7 @@ class Settlement(LocalBase):
     population = Column(Integer, nullable=False)
     data = Column(JSON, nullable=True)
 
-    class NameTypeModel(LocalBase.NameModel):
+    class IndexModel(LocalBase.NameModel):
         type: str
         data: bool
 
@@ -148,7 +148,7 @@ class Place(LocalBase):
 
     RegionModel = LocalBase.IDModel.column_model(region=reg_id).nest_flat_model(LocalBase.NameModel, "reg")
     MunicipalityModel = LocalBase.IDModel.nest_flat_model(LocalBase.NameModel, "mun")
-    SettlementModel = LocalBase.IDModel.nest_flat_model(Settlement.NameTypeModel, "settlement")
+    SettlementModel = LocalBase.IDModel.nest_flat_model(Settlement.IndexModel, "settlement")
 
     FullModel = LocalBase.IDModel \
         .nest_model(LocalBase.BaseModel, "region", "reg") \
@@ -228,14 +228,16 @@ class Place(LocalBase):
         def full_rank(place: Place):
             return rank(place), place.population
 
-        if strategy % 2 == 0:
+        if strategy % 2 == 0:  # TODO use caches here
             for length in cls.TRY_LENGTHS:
-                if len(search) > length:
-                    results = cls.get_all(session, search[:length], total + 1)
-                    if results != total + 1:
-                        results = [r for r in results if search.lower() in r.name.lower()]
-                        results.sort(key=full_rank, reverse=True)
-                        return results
+                if len(search) <= length:
+                    break
+
+                results = cls.get_all(session, search[:length], total + 1)
+                if len(results) != total + 1:
+                    results = [r for r in results if search.lower() in r.name.lower()]
+                    results.sort(key=full_rank, reverse=True)
+                    return results
 
         if strategy // 4 == 0:
             if strategy == 1 and len(search) > 4:
@@ -255,12 +257,15 @@ class Place(LocalBase):
                 places = [p for p in places if p.id not in result_ids]
                 results.extend(places)
                 result_ids.update(set(p.id for p in places))
-                return len(results) >= total
+                return len(result_ids) >= total
 
             def place_all_set(subquery):
-                subquery = subquery.filter(Settlement.name.ilike(search_pattern)).limit(total - len(result_ids))
-                stmt = p_stmt.filter(cls.id.not_in(result_ids)).filter(cls.set_id.in_(subquery))
-                return place_all(session.get_all(stmt))
+                subquery = subquery.filter(Settlement.name.ilike(search_pattern))
+                return place_all(session.get_all((
+                    p_stmt.filter(cls.id.not_in(result_ids))
+                    .filter(cls.set_id.in_(subquery))
+                    .limit(total - len(result_ids))
+                )))
 
             def place_all_other(query):
                 query = query.filter(cls.id.not_in(result_ids)).limit(total - len(result_ids))
